@@ -1,0 +1,8 @@
+version: 2.1
+
+description: |
+  Simplifies building and publishing containers images.
+
+display:
+  home_url: "https://github.com/juburr/container-ops-orb"
+  source_url: "https://github.com/juburr/container-ops-orb"
