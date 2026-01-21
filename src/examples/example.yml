@@ -4,13 +4,13 @@ description: >
 usage:
   version: 2.1
   orbs:
-    container-ops: juburr/container-ops-orb@latest
+    container-ops-orb: juburr/container-ops-orb@latest
   jobs:
     greeter-job:
       docker:
         - image: cimg/base:current-22.04
       steps:
-        - container-ops/greet
+        - container-ops-orb/greet
   workflows:
     use-my-orb:
       jobs:
