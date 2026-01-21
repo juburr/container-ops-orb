@@ -1,7 +1,7 @@
 version: 2.1
 
 description: |
-  Simplifies building and publishing containers images.
+  Simplifies building and publishing containers images using Docker, Apko, Melange, Cosign, and Syft.
 
 display:
   home_url: "https://github.com/juburr/container-ops-orb"
