@@ -4,7 +4,7 @@ description: >
 usage:
   version: 2.1
   orbs:
-    container-ops-orb: juburr/container-ops-orb@latest
+    container-ops-orb: juburr/container-ops-orb@0.0.1
   jobs:
     greeter-job:
       docker:
