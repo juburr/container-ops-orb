@@ -50,8 +50,8 @@ if [ -z "${IMAGE}" ]; then
     exit 1
 fi
 
-# Convert tags string to array
-read -ra TAG_ARRAY <<< "${TAGS}"
+# Convert tags string to array (temporarily reset IFS for space-splitting)
+IFS=' ' read -ra TAG_ARRAY <<< "${TAGS}"
 
 if [ ${#TAG_ARRAY[@]} -eq 0 ]; then
     echo "ERROR: At least one tag is required."

@@ -19,14 +19,8 @@ parameters:
     default: default
     description: |
       The executor to use for the build job. Defaults to a machine executor
-      with Docker pre-installed.
-
-  docker_layer_caching:
-    type: boolean
-    default: false
-    description: |
-      Enable Docker Layer Caching (DLC) for faster builds. Note: DLC is a
-      paid CircleCI feature. Set to true to cache Docker layers between builds.
+      with Docker pre-installed. The machine executor is recommended as it
+      provides native Docker support without requiring setup_remote_docker.
 
   # === IMAGE CONFIGURATION ===
   image:
@@ -241,19 +235,10 @@ steps:
         - attach_workspace:
             at: << parameters.attach_workspace_at >>
 
-  # 3. Docker environment setup (for remote docker executor)
-  - when:
-      condition:
-        not:
-          equal: [default, << parameters.executor >>]
-      steps:
-        - setup_remote_docker:
-            docker_layer_caching: << parameters.docker_layer_caching >>
-
-  # 4. Pre-steps hook (user customization)
+  # 3. Pre-steps hook (user customization)
   - steps: << parameters.pre_steps >>
 
-  # 5. Registry login (conditional - for private base images)
+  # 4. Registry login (conditional - for private base images)
   - when:
       condition: << parameters.registry >>
       steps:
@@ -262,14 +247,14 @@ steps:
             username: << parameters.registry_username >>
             password: << parameters.registry_password >>
 
-  # 6. Pull base images (conditional - workaround for local-only images)
+  # 5. Pull base images (conditional - workaround for local-only images)
   - when:
       condition: << parameters.pull_base_images >>
       steps:
         - docker_pull:
             images: << parameters.pull_base_images >>
 
-  # 7. Core build step
+  # 6. Core build step
   - docker_build:
       image: << parameters.image >>
       tags: << parameters.tags >>
@@ -285,14 +270,14 @@ steps:
       buildx_builder: << parameters.buildx_builder >>
       no_output_timeout: << parameters.no_output_timeout >>
 
-  # 8. Image inspection (conditional)
+  # 7. Image inspection (conditional)
   - when:
       condition: << parameters.inspect >>
       steps:
         - docker_inspect:
             image: << parameters.image >>
 
-  # 9. Archive image (conditional)
+  # 8. Archive image (conditional)
   - when:
       condition: << parameters.archive >>
       steps:
@@ -302,10 +287,10 @@ steps:
             persist_to_workspace: << parameters.persist_to_workspace >>
             workspace_root: << parameters.workspace_root >>
 
-  # 10. Post-steps hook (user customization)
+  # 9. Post-steps hook (user customization)
   - steps: << parameters.post_steps >>
 
-  # 11. Registry logout (conditional)
+  # 10. Registry logout (conditional)
   - when:
       condition: << parameters.registry >>
       steps:
