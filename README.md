@@ -8,7 +8,7 @@
 
 ## Getting Started
 The goal of this orb is to share jobs that allow users to easily perform the following operations:
-- Create container image using `docker`, or distroless container images using `apko` and `melange`.
+- Create container images using `docker`, or distroless container images using `apko` and `melange`.
 - Sign the container images using `cosign`.
 - Publish the container images to a container registry such as `ghcr.io`.
 - Scan the contents of container images using `syft` to produce SBOMs.

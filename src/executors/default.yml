@@ -1,0 +1,8 @@
+description: |
+  Default machine executor with Docker pre-installed.
+  Uses Ubuntu 24.04 with the latest Docker version.
+
+machine:
+  image: ubuntu-2404:current
+
+resource_class: medium

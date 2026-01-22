@@ -1,0 +1,26 @@
+description: |
+  Inspect a Docker image and display its metadata.
+  Useful for verifying labels, environment variables, and image configuration
+  after a build.
+
+parameters:
+  image:
+    type: string
+    description: |
+      The image name to inspect.
+      Example: "myapp" or "myorg/myapp"
+
+  tag:
+    type: string
+    default: ""
+    description: |
+      The tag of the image to inspect. If empty, uses the primary tag
+      from the BUILT_IMAGE_TAG environment variable set by docker-build.
+
+steps:
+  - run:
+      name: Docker Inspect
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_TAG: << parameters.tag >>
+      command: << include(scripts/docker/inspect.sh) >>
