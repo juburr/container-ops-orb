@@ -31,7 +31,7 @@ jobs:
       - run:
           name: Create test Dockerfile
           command: |
-            cat > Dockerfile <<'EOF'
+            cat > Dockerfile \<<'EOF'
             # Test Dockerfile for orb validation
             ARG OCI_CREATED
             ARG OCI_REVISION
@@ -96,7 +96,7 @@ jobs:
           name: Create test Dockerfile
           command: |
             mkdir -p containers/test
-            cat > containers/test/Dockerfile <<'EOF'
+            cat > containers/test/Dockerfile \<<'EOF'
             ARG OCI_CREATED
             ARG OCI_REVISION
             ARG OCI_VERSION
@@ -122,7 +122,7 @@ jobs:
       - run:
           name: Create test Dockerfile
           command: |
-            cat > Dockerfile <<'EOF'
+            cat > Dockerfile \<<'EOF'
             ARG OCI_CREATED
             ARG OCI_REVISION
             ARG OCI_VERSION
@@ -155,7 +155,7 @@ workflows:
             - run:
                 name: Create test Dockerfile
                 command: |
-                  cat > Dockerfile <<'EOF'
+                  cat > Dockerfile \<<'EOF'
                   ARG OCI_CREATED
                   ARG OCI_REVISION
                   ARG OCI_VERSION
@@ -183,7 +183,7 @@ workflows:
             - run:
                 name: Create multi-stage Dockerfile
                 command: |
-                  cat > Dockerfile <<'EOF'
+                  cat > Dockerfile \<<'EOF'
                   ARG OCI_CREATED
                   ARG OCI_REVISION
                   ARG OCI_VERSION
@@ -216,7 +216,7 @@ workflows:
                 name: Create Dockerfile in custom location
                 command: |
                   mkdir -p containers/app
-                  cat > containers/app/Dockerfile <<'EOF'
+                  cat > containers/app/Dockerfile \<<'EOF'
                   FROM alpine:3.20
                   LABEL org.opencontainers.image.title="Custom Path Test"
                   CMD ["echo", "Custom path test passed"]
