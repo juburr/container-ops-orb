@@ -1,0 +1,15 @@
+description: |
+  Build a Docker image with default settings. The image will be tagged
+  with the Git commit SHA and archived for use in downstream jobs.
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    build-workflow:
+      jobs:
+        - container-ops/build:
+            image: myapp

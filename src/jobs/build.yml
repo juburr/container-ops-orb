@@ -1,0 +1,313 @@
+description: |
+  Build a Docker container image with comprehensive options for:
+  - Multi-stage Dockerfile support
+  - OCI-compliant label injection
+  - Base image pre-pulling (for local-only images like those from apko/melange)
+  - Multi-platform builds with buildx
+  - Docker layer caching
+  - Workspace persistence for downstream jobs (publish, scan)
+
+  This job is designed to work with the publish job to enable
+  a build-once, publish-many workflow pattern.
+
+executor: << parameters.executor >>
+
+parameters:
+  # === EXECUTOR CONFIGURATION ===
+  executor:
+    type: executor
+    default: default
+    description: |
+      The executor to use for the build job. Defaults to a machine executor
+      with Docker pre-installed.
+
+  docker_layer_caching:
+    type: boolean
+    default: false
+    description: |
+      Enable Docker Layer Caching (DLC) for faster builds. Note: DLC is a
+      paid CircleCI feature. Set to true to cache Docker layers between builds.
+
+  # === IMAGE CONFIGURATION ===
+  image:
+    type: string
+    description: |
+      (Required) The name of the image to build. This will be used as the
+      Docker image tag. Example: "myapp" or "myorg/myapp"
+
+  tags:
+    type: string
+    default: "${CIRCLE_SHA1}"
+    description: |
+      Space-separated list of tags to apply to the built image.
+      Supports environment variable substitution.
+      Example: "latest v1.0.0 ${CIRCLE_SHA1}"
+
+  # === BUILD CONFIGURATION ===
+  dockerfile:
+    type: string
+    default: "Dockerfile"
+    description: |
+      Path to the Dockerfile relative to the context directory.
+      Defaults to "Dockerfile" in the build context root.
+
+  docker_context:
+    type: string
+    default: "."
+    description: |
+      Build context directory. This is the root directory sent to the
+      Docker daemon for the build. Defaults to the current directory.
+
+  target:
+    type: string
+    default: ""
+    description: |
+      Target build stage for multi-stage Dockerfiles. Leave empty to build
+      the final stage. Example: "prod" or "builder"
+
+  build_args:
+    type: string
+    default: ""
+    description: |
+      Additional build arguments to pass to docker build, in the format
+      "ARG1=value1 ARG2=value2". These are passed with --build-arg flags.
+      Note: OCI label build args are automatically injected (see oci_labels).
+
+  extra_docker_args:
+    type: string
+    default: ""
+    description: |
+      Additional flags to pass directly to the docker build command.
+      Example: "--no-cache --squash"
+
+  no_output_timeout:
+    type: string
+    default: "20m"
+    description: |
+      Maximum time the build step can run without producing output
+      before being killed. Increase for large builds.
+
+  # === OCI LABELS ===
+  oci_labels:
+    type: boolean
+    default: true
+    description: |
+      Automatically inject OCI-compliant label values as build arguments.
+      When enabled, the following build args are passed:
+        - OCI_CREATED: Build timestamp (RFC 3339)
+        - OCI_REVISION: Git commit SHA (CIRCLE_SHA1)
+        - OCI_VERSION: Version from parameter, CIRCLE_TAG, or "dev"
+        - OCI_SOURCE: Source repository URL
+      Your Dockerfile should use ARG and LABEL to consume these values.
+
+  version:
+    type: string
+    default: ""
+    description: |
+      Version string to pass as OCI_VERSION build arg. If empty, defaults
+      to CIRCLE_TAG if set, otherwise "dev". Used for the
+      org.opencontainers.image.version label.
+
+  # === BASE IMAGE HANDLING ===
+  pull_base_images:
+    type: string
+    default: ""
+    description: |
+      Space-separated list of base images to pull before building.
+      This is necessary when base images exist only locally (e.g., built
+      with apko/melange) because Docker's --pull flag fails for local-only
+      images. Example: "ghcr.io/myorg/base:latest myregistry/runtime:1.0"
+
+  use_pull_flag:
+    type: boolean
+    default: false
+    description: |
+      Add the --pull flag to docker build to always pull the latest base
+      images from the registry. Note: This will fail if any base image
+      only exists locally. Use pull_base_images for mixed scenarios.
+
+  # === MULTI-PLATFORM SUPPORT ===
+  platforms:
+    type: string
+    default: ""
+    description: |
+      Comma-separated list of target platforms for multi-platform builds
+      using Docker buildx. Example: "linux/amd64,linux/arm64"
+      Leave empty for single-platform builds using standard docker build.
+
+  buildx_builder:
+    type: string
+    default: ""
+    description: |
+      Name of the buildx builder instance to use. If empty, the default
+      builder is used. Only applies when platforms is specified.
+
+  # === REGISTRY AUTHENTICATION ===
+  registry:
+    type: string
+    default: ""
+    description: |
+      Container registry to authenticate with for pulling private base
+      images. Leave empty to skip registry login. Examples: "ghcr.io",
+      "docker.io", "gcr.io", "123456789.dkr.ecr.us-east-1.amazonaws.com"
+
+  registry_username:
+    type: env_var_name
+    default: DOCKER_USERNAME
+    description: |
+      Name of the environment variable containing the registry username.
+      Only used when registry is specified.
+
+  registry_password:
+    type: env_var_name
+    default: DOCKER_PASSWORD
+    description: |
+      Name of the environment variable containing the registry password
+      or access token. Only used when registry is specified.
+
+  # === OUTPUT CONFIGURATION ===
+  archive:
+    type: boolean
+    default: true
+    description: |
+      Save the built image to a tar archive for workspace persistence.
+      The archive is saved to ~/images/<image>-img.tar
+
+  archive_path:
+    type: string
+    default: "~/images"
+    description: |
+      Directory path where the image archive will be saved.
+      Defaults to ~/images for CircleCI workspace compatibility.
+
+  persist_to_workspace:
+    type: boolean
+    default: true
+    description: |
+      Persist the archived image to the CircleCI workspace for use in
+      subsequent jobs. Only applies when archive is true.
+
+  workspace_root:
+    type: string
+    default: "~"
+    description: |
+      Root directory for workspace persistence. The archive_path should
+      be relative to this root.
+
+  # === INSPECTION & DEBUGGING ===
+  inspect:
+    type: boolean
+    default: true
+    description: |
+      Run docker inspect on the built image and display the output.
+      Useful for verifying labels and image configuration.
+
+  # === WORKFLOW CUSTOMIZATION ===
+  attach_workspace:
+    type: boolean
+    default: false
+    description: |
+      Attach a workspace from a previous job before building.
+      Useful when base images or build artifacts are in the workspace.
+
+  attach_workspace_at:
+    type: string
+    default: "."
+    description: |
+      Path where the workspace should be attached.
+
+  pre_steps:
+    type: steps
+    default: []
+    description: |
+      Steps to execute before the build process begins. Runs after
+      checkout and workspace attachment, but before registry login.
+
+  post_steps:
+    type: steps
+    default: []
+    description: |
+      Steps to execute after the build process completes. Runs after
+      archive and persist, but before registry logout.
+
+steps:
+  # 1. Source code checkout
+  - checkout
+
+  # 2. Workspace attachment (conditional)
+  - when:
+      condition: << parameters.attach_workspace >>
+      steps:
+        - attach_workspace:
+            at: << parameters.attach_workspace_at >>
+
+  # 3. Docker environment setup (for remote docker executor)
+  - when:
+      condition:
+        not:
+          equal: [default, << parameters.executor >>]
+      steps:
+        - setup_remote_docker:
+            docker_layer_caching: << parameters.docker_layer_caching >>
+
+  # 4. Pre-steps hook (user customization)
+  - steps: << parameters.pre_steps >>
+
+  # 5. Registry login (conditional - for private base images)
+  - when:
+      condition: << parameters.registry >>
+      steps:
+        - docker-login:
+            registry: << parameters.registry >>
+            username: << parameters.registry_username >>
+            password: << parameters.registry_password >>
+
+  # 6. Pull base images (conditional - workaround for local-only images)
+  - when:
+      condition: << parameters.pull_base_images >>
+      steps:
+        - docker-pull:
+            images: << parameters.pull_base_images >>
+
+  # 7. Core build step
+  - docker-build:
+      image: << parameters.image >>
+      tags: << parameters.tags >>
+      dockerfile: << parameters.dockerfile >>
+      context: << parameters.docker_context >>
+      target: << parameters.target >>
+      build_args: << parameters.build_args >>
+      extra_docker_args: << parameters.extra_docker_args >>
+      oci_labels: << parameters.oci_labels >>
+      version: << parameters.version >>
+      use_pull_flag: << parameters.use_pull_flag >>
+      platforms: << parameters.platforms >>
+      buildx_builder: << parameters.buildx_builder >>
+      no_output_timeout: << parameters.no_output_timeout >>
+
+  # 8. Image inspection (conditional)
+  - when:
+      condition: << parameters.inspect >>
+      steps:
+        - docker-inspect:
+            image: << parameters.image >>
+
+  # 9. Archive image (conditional)
+  - when:
+      condition: << parameters.archive >>
+      steps:
+        - docker-archive:
+            image: << parameters.image >>
+            output_path: << parameters.archive_path >>
+            persist_to_workspace: << parameters.persist_to_workspace >>
+            workspace_root: << parameters.workspace_root >>
+
+  # 10. Post-steps hook (user customization)
+  - steps: << parameters.post_steps >>
+
+  # 11. Registry logout (conditional)
+  - when:
+      condition: << parameters.registry >>
+      steps:
+        - docker-logout:
+            registry: << parameters.registry >>

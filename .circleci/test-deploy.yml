@@ -20,25 +20,213 @@ release-filters: &release-filters
     only: /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 jobs:
-  # Create jobs to test the commands of your orbs.
-  # You may want to add additional validation steps to ensure the commands are working as expected.
+  # Test individual docker commands
   command-test:
-    docker:
-      - image: cimg/base:current
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
     steps:
       - checkout
-      - container-ops-orb/greet
+      # Create a simple test Dockerfile
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile <<'EOF'
+            # Test Dockerfile for orb validation
+            ARG OCI_CREATED
+            ARG OCI_REVISION
+            ARG OCI_VERSION
+            ARG OCI_SOURCE
+
+            FROM alpine:3.20
+
+            LABEL org.opencontainers.image.title="Test Image"
+            LABEL org.opencontainers.image.description="Test image for container-ops-orb validation"
+            LABEL org.opencontainers.image.created="${OCI_CREATED}"
+            LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+            LABEL org.opencontainers.image.version="${OCI_VERSION}"
+
+            RUN echo "Hello from container-ops-orb test image"
+            EOF
+      # Test docker-build command
+      - container-ops-orb/docker-build:
+          image: test-image
+          tags: "test-tag ${CIRCLE_SHA1}"
+          oci_labels: true
+      # Test docker-inspect command
+      - container-ops-orb/docker-inspect:
+          image: test-image
+          tag: test-tag
+      # Test docker-archive command (without workspace persistence for this test)
+      - container-ops-orb/docker-archive:
+          image: test-image
+          tag: test-tag
+          persist_to_workspace: false
+      # Verify the archive was created
+      - run:
+          name: Verify archive exists
+          command: |
+            if [ -f ~/images/test-image-img.tar ]; then
+              echo "Archive created successfully!"
+              ls -la ~/images/
+            else
+              echo "ERROR: Archive not found"
+              exit 1
+            fi
+      # Test docker-load command
+      - run:
+          name: Remove image to test load
+          command: docker rmi test-image:test-tag
+      - container-ops-orb/docker-load:
+          image: test-image
+      # Verify image was loaded
+      - run:
+          name: Verify image loaded
+          command: docker image inspect test-image:test-tag
+
+  # Test the full build job
+  job-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Create a test Dockerfile in a subdirectory
+      - run:
+          name: Create test Dockerfile
+          command: |
+            mkdir -p containers/test
+            cat > containers/test/Dockerfile <<'EOF'
+            ARG OCI_CREATED
+            ARG OCI_REVISION
+            ARG OCI_VERSION
+
+            FROM alpine:3.20
+
+            LABEL org.opencontainers.image.title="Build Job Test"
+            LABEL org.opencontainers.image.description="Test image for build job validation"
+            LABEL org.opencontainers.image.created="${OCI_CREATED}"
+            LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+            LABEL org.opencontainers.image.version="${OCI_VERSION}"
+
+            CMD ["echo", "Build job test successful"]
+            EOF
+
+  # Integration test using the build job directly
+  build-job-integration-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile <<'EOF'
+            ARG OCI_CREATED
+            ARG OCI_REVISION
+            ARG OCI_VERSION
+
+            FROM alpine:3.20
+
+            LABEL org.opencontainers.image.title="Integration Test"
+            LABEL org.opencontainers.image.created="${OCI_CREATED}"
+            LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+            LABEL org.opencontainers.image.version="${OCI_VERSION}"
+
+            CMD ["echo", "Integration test passed"]
+            EOF
 
 workflows:
   test-deploy:
     jobs:
-      # Make sure to include "filters: *filters" in every test job you want to run as part of your deployment.
-      # Test your orb's commands in a custom job and test your orb's jobs directly as a part of this workflow.
+      # Test individual commands
       - command-test:
           filters: *filters
+
+      # Test the build job directly with minimal config
+      - container-ops-orb/build:
+          name: build-job-simple-test
+          image: orb-test-simple
+          archive: true
+          persist_to_workspace: false
+          inspect: true
+          pre_steps:
+            - run:
+                name: Create test Dockerfile
+                command: |
+                  cat > Dockerfile <<'EOF'
+                  ARG OCI_CREATED
+                  ARG OCI_REVISION
+                  ARG OCI_VERSION
+
+                  FROM alpine:3.20
+
+                  LABEL org.opencontainers.image.title="Simple Build Test"
+                  LABEL org.opencontainers.image.created="${OCI_CREATED}"
+                  LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+                  LABEL org.opencontainers.image.version="${OCI_VERSION}"
+
+                  CMD ["echo", "Simple build test passed"]
+                  EOF
+          filters: *filters
+
+      # Test with multi-stage Dockerfile
+      - container-ops-orb/build:
+          name: build-job-multistage-test
+          image: orb-test-multistage
+          target: prod
+          tags: "latest ${CIRCLE_SHA1}"
+          archive: true
+          persist_to_workspace: false
+          pre_steps:
+            - run:
+                name: Create multi-stage Dockerfile
+                command: |
+                  cat > Dockerfile <<'EOF'
+                  ARG OCI_CREATED
+                  ARG OCI_REVISION
+                  ARG OCI_VERSION
+
+                  # Builder stage
+                  FROM alpine:3.20 AS builder
+                  RUN echo "Building..." > /build-output.txt
+
+                  # Production stage
+                  FROM alpine:3.20 AS prod
+                  COPY --from=builder /build-output.txt /app/
+                  LABEL org.opencontainers.image.title="Multi-stage Test"
+                  LABEL org.opencontainers.image.created="${OCI_CREATED}"
+                  LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+                  LABEL org.opencontainers.image.version="${OCI_VERSION}"
+                  CMD ["cat", "/app/build-output.txt"]
+                  EOF
+          filters: *filters
+
+      # Test with custom dockerfile path
+      - container-ops-orb/build:
+          name: build-job-custom-path-test
+          image: orb-test-custom-path
+          dockerfile: containers/app/Dockerfile
+          docker_context: .
+          archive: false
+          inspect: true
+          pre_steps:
+            - run:
+                name: Create Dockerfile in custom location
+                command: |
+                  mkdir -p containers/app
+                  cat > containers/app/Dockerfile <<'EOF'
+                  FROM alpine:3.20
+                  LABEL org.opencontainers.image.title="Custom Path Test"
+                  CMD ["echo", "Custom path test passed"]
+                  EOF
+          filters: *filters
+
       # The orb must be re-packed for publishing, and saved to the workspace.
       - orb-tools/pack:
           filters: *release-filters
+
       - orb-tools/publish:
           orb_name: juburr/container-ops-orb
           vcs_type: << pipeline.project.type >>
@@ -47,5 +235,8 @@ workflows:
           requires:
             - orb-tools/pack
             - command-test
+            - build-job-simple-test
+            - build-job-multistage-test
+            - build-job-custom-path-test
           context: orb-publishing
           filters: *release-filters

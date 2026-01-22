@@ -1,0 +1,17 @@
+description: |
+  Logout from a container registry using Docker CLI.
+  This cleans up stored credentials for the specified registry.
+
+parameters:
+  registry:
+    type: string
+    description: |
+      Container registry to logout from.
+      Examples: "ghcr.io", "docker.io", "gcr.io"
+
+steps:
+  - run:
+      name: Docker Logout
+      environment:
+        PARAM_REGISTRY: << parameters.registry >>
+      command: << include(scripts/docker/logout.sh) >>

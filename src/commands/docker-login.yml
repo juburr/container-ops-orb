@@ -1,0 +1,31 @@
+description: |
+  Authenticate with a container registry using Docker CLI.
+  Credentials are passed securely via environment variable indirection.
+
+parameters:
+  registry:
+    type: string
+    description: |
+      Container registry to authenticate with.
+      Examples: "ghcr.io", "docker.io", "gcr.io", "123456789.dkr.ecr.us-east-1.amazonaws.com"
+
+  username:
+    type: env_var_name
+    default: DOCKER_USERNAME
+    description: |
+      Name of the environment variable containing the registry username.
+
+  password:
+    type: env_var_name
+    default: DOCKER_PASSWORD
+    description: |
+      Name of the environment variable containing the registry password or access token.
+
+steps:
+  - run:
+      name: Docker Login
+      environment:
+        PARAM_REGISTRY: << parameters.registry >>
+        PARAM_USERNAME: << parameters.username >>
+        PARAM_PASSWORD: << parameters.password >>
+      command: << include(scripts/docker/login.sh) >>

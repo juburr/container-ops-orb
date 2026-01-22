@@ -1,0 +1,55 @@
+description: |
+  Archive a Docker image to a tar file using docker save.
+  This is useful for persisting images to the CircleCI workspace
+  so they can be used by downstream jobs (e.g., publish, scan).
+
+parameters:
+  image:
+    type: string
+    description: |
+      The image name to archive.
+      Example: "myapp" or "myorg/myapp"
+
+  tag:
+    type: string
+    default: ""
+    description: |
+      The tag of the image to archive. If empty, uses the primary tag
+      from the BUILT_IMAGE_TAG environment variable set by docker-build.
+
+  output_path:
+    type: string
+    default: "~/images"
+    description: |
+      Directory where the tar archive will be saved.
+      Defaults to ~/images for CircleCI workspace compatibility.
+
+  persist_to_workspace:
+    type: boolean
+    default: true
+    description: |
+      Persist the archived image to the CircleCI workspace for use in
+      subsequent jobs.
+
+  workspace_root:
+    type: string
+    default: "~"
+    description: |
+      Root directory for workspace persistence. The output_path should
+      be relative to this root.
+
+steps:
+  - run:
+      name: Docker Archive
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_TAG: << parameters.tag >>
+        PARAM_OUTPUT_PATH: << parameters.output_path >>
+      command: << include(scripts/docker/archive.sh) >>
+  - when:
+      condition: << parameters.persist_to_workspace >>
+      steps:
+        - persist_to_workspace:
+            root: << parameters.workspace_root >>
+            paths:
+              - images

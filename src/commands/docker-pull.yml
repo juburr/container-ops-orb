@@ -1,0 +1,20 @@
+description: |
+  Pull one or more container images from a registry.
+  This is useful for pre-pulling base images before a build, especially when
+  using Docker's --pull flag would fail because some base images only exist
+  locally (e.g., images built with apko/melange).
+
+parameters:
+  images:
+    type: string
+    description: |
+      Space-separated list of images to pull from the registry.
+      Example: "ghcr.io/myorg/base:latest gcr.io/project/runtime:v1"
+      Pull failures are treated as warnings since images may exist locally.
+
+steps:
+  - run:
+      name: Docker Pull Base Images
+      environment:
+        PARAM_IMAGES: << parameters.images >>
+      command: << include(scripts/docker/pull.sh) >>

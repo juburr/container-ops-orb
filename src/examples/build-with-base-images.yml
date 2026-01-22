@@ -1,0 +1,29 @@
+description: |
+  Build a Docker image with pre-pulled base images from a private registry.
+  This pattern is useful when:
+  - Base images are in a private registry requiring authentication
+  - Base images may only exist locally (e.g., built with apko/melange)
+  - You want to ensure fresh base images without using Docker's --pull flag
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    build-workflow:
+      jobs:
+        - container-ops/build:
+            image: myorg/myapp
+            tags: "latest v1.0.0 ${CIRCLE_SHA1}"
+            dockerfile: containers/prod/Dockerfile
+            docker_context: .
+            target: prod
+            registry: ghcr.io
+            registry_username: GH_USER
+            registry_password: GH_TOKEN
+            pull_base_images: "ghcr.io/myorg/base:latest ghcr.io/myorg/runtime:v1"
+            oci_labels: true
+            archive: true
+            persist_to_workspace: true
