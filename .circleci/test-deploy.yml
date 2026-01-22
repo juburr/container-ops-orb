@@ -49,16 +49,16 @@ jobs:
             RUN echo "Hello from container-ops-orb test image"
             EOF
       # Test docker-build command
-      - container-ops-orb/docker-build:
+      - container-ops-orb/docker_build:
           image: test-image
           tags: "test-tag ${CIRCLE_SHA1}"
           oci_labels: true
       # Test docker-inspect command
-      - container-ops-orb/docker-inspect:
+      - container-ops-orb/docker_inspect:
           image: test-image
           tag: test-tag
       # Test docker-archive command (without workspace persistence for this test)
-      - container-ops-orb/docker-archive:
+      - container-ops-orb/docker_archive:
           image: test-image
           tag: test-tag
           persist_to_workspace: false
@@ -77,7 +77,7 @@ jobs:
       - run:
           name: Remove image to test load
           command: docker rmi test-image:test-tag
-      - container-ops-orb/docker-load:
+      - container-ops-orb/docker_load:
           image: test-image
       # Verify image was loaded
       - run:

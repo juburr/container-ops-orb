@@ -257,7 +257,7 @@ steps:
   - when:
       condition: << parameters.registry >>
       steps:
-        - docker-login:
+        - docker_login:
             registry: << parameters.registry >>
             username: << parameters.registry_username >>
             password: << parameters.registry_password >>
@@ -266,11 +266,11 @@ steps:
   - when:
       condition: << parameters.pull_base_images >>
       steps:
-        - docker-pull:
+        - docker_pull:
             images: << parameters.pull_base_images >>
 
   # 7. Core build step
-  - docker-build:
+  - docker_build:
       image: << parameters.image >>
       tags: << parameters.tags >>
       dockerfile: << parameters.dockerfile >>
@@ -289,14 +289,14 @@ steps:
   - when:
       condition: << parameters.inspect >>
       steps:
-        - docker-inspect:
+        - docker_inspect:
             image: << parameters.image >>
 
   # 9. Archive image (conditional)
   - when:
       condition: << parameters.archive >>
       steps:
-        - docker-archive:
+        - docker_archive:
             image: << parameters.image >>
             output_path: << parameters.archive_path >>
             persist_to_workspace: << parameters.persist_to_workspace >>
@@ -309,5 +309,5 @@ steps:
   - when:
       condition: << parameters.registry >>
       steps:
-        - docker-logout:
+        - docker_logout:
             registry: << parameters.registry >>
