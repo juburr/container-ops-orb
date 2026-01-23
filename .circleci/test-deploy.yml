@@ -5,6 +5,8 @@ orbs:
   orb-tools: circleci/orb-tools@12.3
   # The orb definition is intentionally not included here. It will be injected into the pipeline.
   container-ops-orb: {}
+  # Import tagger orb directly for integration testing
+  tagger: juburr/container-tagger-orb@0.7.4
 
 # Use this tag to ensure test jobs always run,
 # even though the downstream publish job will only run on release tags.
@@ -84,6 +86,517 @@ jobs:
           name: Verify image loaded
           command: docker image inspect test-image:test-tag
 
+      # Test docker_tag command - tag image for a mock registry
+      - container-ops-orb/docker_tag:
+          source_image: "test-image:test-tag"
+          target_image: "localhost:5000/test-org/test-image"
+          tags: "v1.0.0 latest ${CIRCLE_SHA1}"
+      # Verify tags were applied
+      - run:
+          name: Verify docker_tag created expected tags
+          command: |
+            echo "Verifying tagged images exist..."
+            docker image inspect localhost:5000/test-org/test-image:v1.0.0
+            docker image inspect localhost:5000/test-org/test-image:latest
+            docker image inspect localhost:5000/test-org/test-image:${CIRCLE_SHA1}
+            echo "All expected tags verified!"
+
+      # Verify TAGGED_IMAGE environment variables were set
+      - run:
+          name: Verify TAGGED_IMAGE env vars
+          command: |
+            source "${BASH_ENV}"
+            echo "TAGGED_IMAGE: ${TAGGED_IMAGE}"
+            echo "TAGGED_IMAGE_TAG: ${TAGGED_IMAGE_TAG}"
+            echo "TAGGED_IMAGE_FULL: ${TAGGED_IMAGE_FULL}"
+            if [ "${TAGGED_IMAGE}" != "localhost:5000/test-org/test-image" ]; then
+              echo "ERROR: TAGGED_IMAGE mismatch"
+              exit 1
+            fi
+            if [ "${TAGGED_IMAGE_TAG}" != "v1.0.0" ]; then
+              echo "ERROR: TAGGED_IMAGE_TAG mismatch"
+              exit 1
+            fi
+            echo "Environment variables verified!"
+
+  # Test docker_tag and docker_push commands with a local registry
+  tag-push-command-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Start a local Docker registry for testing
+      - run:
+          name: Start local Docker registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            # Wait for registry to be ready
+            sleep 3
+            echo "Local registry started on localhost:5000"
+
+      # Create and build a test image
+      - run:
+          name: Create and build test image
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            LABEL org.opencontainers.image.title="Tag Push Test"
+            CMD ["echo", "Tag and push test"]
+            EOF
+            docker build -t push-test-image:original .
+
+      # Test docker_tag command with multiple tags
+      - container-ops-orb/docker_tag:
+          source_image: "push-test-image:original"
+          target_image: "localhost:5000/myorg/push-test"
+          tags: "v2.0.0 v2.0 v2 latest"
+
+      # Test docker_push command - push to local registry
+      - container-ops-orb/docker_push:
+          image: "localhost:5000/myorg/push-test"
+          tags: "v2.0.0 v2.0 v2 latest"
+
+      # Verify images were pushed to registry
+      - run:
+          name: Verify images in registry
+          command: |
+            echo "Verifying images were pushed to local registry..."
+            # Pull images back from registry to verify push worked
+            docker rmi localhost:5000/myorg/push-test:v2.0.0 || true
+            docker rmi localhost:5000/myorg/push-test:latest || true
+            docker pull localhost:5000/myorg/push-test:v2.0.0
+            docker pull localhost:5000/myorg/push-test:latest
+            echo "Successfully pulled images from registry!"
+
+      # Verify PUSHED_IMAGE environment variables were set
+      - run:
+          name: Verify PUSHED_IMAGE env vars
+          command: |
+            source "${BASH_ENV}"
+            echo "PUSHED_IMAGE: ${PUSHED_IMAGE}"
+            echo "PUSHED_IMAGE_TAG: ${PUSHED_IMAGE_TAG}"
+            echo "PUSHED_IMAGE_FULL: ${PUSHED_IMAGE_FULL}"
+            if [ "${PUSHED_IMAGE}" != "localhost:5000/myorg/push-test" ]; then
+              echo "ERROR: PUSHED_IMAGE mismatch"
+              exit 1
+            fi
+            echo "Environment variables verified!"
+
+      # Cleanup
+      - run:
+          name: Stop local registry
+          command: docker stop registry && docker rm registry
+
+  # Test publish job with local registry (no external credentials needed)
+  publish-job-local-registry-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Start local registry
+      - run:
+          name: Start local Docker registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            sleep 3
+            echo "Local registry started"
+
+      # Build and archive test image
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            LABEL org.opencontainers.image.title="Publish Job Test"
+            CMD ["echo", "Publish job test passed"]
+            EOF
+      - container-ops-orb/docker_build:
+          image: publish-test-app
+          tags: "abc123"
+      - container-ops-orb/docker_archive:
+          image: publish-test-app
+          tag: abc123
+          persist_to_workspace: false
+
+      # Simulate workspace by keeping the archive
+      - run:
+          name: Verify archive for publish
+          command: ls -la ~/images/
+
+      # Test docker_load (simulating what publish job does)
+      - run:
+          name: Remove image to test full publish flow
+          command: docker rmi publish-test-app:abc123
+
+      # Test the publish flow components
+      - container-ops-orb/docker_load:
+          image: publish-test-app
+          archive_path: ~/images
+      - container-ops-orb/docker_tag:
+          source_image: "publish-test-app:abc123"
+          target_image: "localhost:5000/testorg/publish-test-app"
+          tags: "abc123 latest v1.0.0"
+      - container-ops-orb/docker_push:
+          image: "localhost:5000/testorg/publish-test-app"
+          tags: "abc123 latest v1.0.0"
+
+      # Verify published images
+      - run:
+          name: Verify published images in registry
+          command: |
+            # Clean local images
+            docker rmi localhost:5000/testorg/publish-test-app:abc123 || true
+            docker rmi localhost:5000/testorg/publish-test-app:latest || true
+            docker rmi localhost:5000/testorg/publish-test-app:v1.0.0 || true
+
+            # Pull from registry
+            docker pull localhost:5000/testorg/publish-test-app:abc123
+            docker pull localhost:5000/testorg/publish-test-app:latest
+            docker pull localhost:5000/testorg/publish-test-app:v1.0.0
+            echo "All images published and verified!"
+
+      # Cleanup
+      - run:
+          name: Cleanup
+          command: docker stop registry && docker rm registry
+
+  # Test tagger orb integration for publish job
+  tagger-integration-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Start local registry
+      - run:
+          name: Start local Docker registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            sleep 3
+
+      # Build test image
+      - run:
+          name: Create and build test image
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            LABEL org.opencontainers.image.title="Tagger Integration Test"
+            CMD ["echo", "Tagger test"]
+            EOF
+            docker build -t tagger-test:source .
+
+      # Create a tags file (simulating tagger/generate_tags output)
+      - run:
+          name: Create tags file
+          command: |
+            cat > tags.txt \<<'EOF'
+            1.2.3
+            1.2
+            1
+            latest
+            EOF
+            echo "Tags file created at $(pwd)/tags.txt:"
+            cat tags.txt
+
+      # Test tagger/tag command (using directly imported tagger orb)
+      - tagger/tag:
+          source_image: "tagger-test:source"
+          target_image: "localhost:5000/taggerorg/tagger-test"
+          tags_file: tags.txt
+
+      # Verify tags were applied
+      - run:
+          name: Verify tagger tags applied
+          command: |
+            docker image inspect localhost:5000/taggerorg/tagger-test:1.2.3
+            docker image inspect localhost:5000/taggerorg/tagger-test:1.2
+            docker image inspect localhost:5000/taggerorg/tagger-test:1
+            docker image inspect localhost:5000/taggerorg/tagger-test:latest
+            echo "All tagger tags verified!"
+
+      # Test tagger/push command
+      - tagger/push:
+          target_image: "localhost:5000/taggerorg/tagger-test"
+          tags_file: tags.txt
+
+      # Test tagger/populate_tag command
+      - tagger/populate_tag
+      - run:
+          name: Verify TAG env var populated
+          command: |
+            source "${BASH_ENV}"
+            echo "TAG: ${TAG}"
+            if [ -z "${TAG}" ]; then
+              echo "ERROR: TAG was not populated"
+              exit 1
+            fi
+            echo "TAG environment variable verified!"
+
+      # Verify images in registry
+      - run:
+          name: Verify tagger pushed images
+          command: |
+            docker rmi localhost:5000/taggerorg/tagger-test:1.2.3 || true
+            docker pull localhost:5000/taggerorg/tagger-test:1.2.3
+            docker pull localhost:5000/taggerorg/tagger-test:latest
+            echo "Tagger images verified in registry!"
+
+      # Cleanup
+      - run:
+          name: Cleanup
+          command: docker stop registry && docker rm registry
+
+  # Full build-to-publish integration test using workspace
+  build-publish-integration-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Start local registry
+      - run:
+          name: Start local Docker registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            sleep 3
+
+      # Build test image using build command
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile \<<'EOF'
+            ARG OCI_CREATED
+            ARG OCI_REVISION
+            ARG OCI_VERSION
+
+            FROM alpine:3.20
+
+            LABEL org.opencontainers.image.title="Build-Publish Integration"
+            LABEL org.opencontainers.image.created="${OCI_CREATED}"
+            LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+            LABEL org.opencontainers.image.version="${OCI_VERSION}"
+
+            CMD ["echo", "Build-publish integration test"]
+            EOF
+
+      - container-ops-orb/docker_build:
+          image: integration-app
+          tags: "int123 latest"
+          oci_labels: true
+
+      - container-ops-orb/docker_inspect:
+          image: integration-app
+          tag: int123
+
+      - container-ops-orb/docker_archive:
+          image: integration-app
+          tag: int123
+          persist_to_workspace: false
+
+      # Simulate the publish job flow
+      - run:
+          name: Remove images to simulate fresh publish environment
+          command: |
+            docker rmi integration-app:int123 || true
+            docker rmi integration-app:latest || true
+
+      - container-ops-orb/docker_load:
+          image: integration-app
+          archive_path: ~/images
+
+      - container-ops-orb/docker_tag:
+          source_image: "integration-app:int123"
+          target_image: "localhost:5000/intorg/integration-app"
+          tags: "int123 latest v1.0.0 edge"
+
+      - container-ops-orb/docker_push:
+          image: "localhost:5000/intorg/integration-app"
+          tags: "int123 latest v1.0.0 edge"
+
+      # Comprehensive verification
+      - run:
+          name: Comprehensive registry verification
+          command: |
+            echo "=== Cleaning local images ==="
+            docker rmi localhost:5000/intorg/integration-app:int123 || true
+            docker rmi localhost:5000/intorg/integration-app:latest || true
+            docker rmi localhost:5000/intorg/integration-app:v1.0.0 || true
+            docker rmi localhost:5000/intorg/integration-app:edge || true
+
+            echo "=== Pulling all tags from registry ==="
+            docker pull localhost:5000/intorg/integration-app:int123
+            docker pull localhost:5000/intorg/integration-app:latest
+            docker pull localhost:5000/intorg/integration-app:v1.0.0
+            docker pull localhost:5000/intorg/integration-app:edge
+
+            echo "=== Verifying OCI labels preserved ==="
+            docker inspect localhost:5000/intorg/integration-app:int123 | grep "org.opencontainers.image.title"
+
+            echo "=== Running the image ==="
+            docker run --rm localhost:5000/intorg/integration-app:latest
+
+            echo "=== Build-publish integration test PASSED ==="
+
+      # Cleanup
+      - run:
+          name: Cleanup
+          command: docker stop registry && docker rm registry
+
+  # Test edge cases - empty additional_tags
+  edge-case-empty-additional-tags-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Start local registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            sleep 3
+
+      - run:
+          name: Build test image
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            CMD ["echo", "edge case test"]
+            EOF
+            docker build -t edge-test:single .
+
+      # Test with only primary tag (empty additional tags scenario)
+      - container-ops-orb/docker_tag:
+          source_image: "edge-test:single"
+          target_image: "localhost:5000/edge/edge-test"
+          tags: "single-tag"
+
+      - container-ops-orb/docker_push:
+          image: "localhost:5000/edge/edge-test"
+          tags: "single-tag"
+
+      - run:
+          name: Verify single tag push
+          command: |
+            docker rmi localhost:5000/edge/edge-test:single-tag || true
+            docker pull localhost:5000/edge/edge-test:single-tag
+            echo "Single tag edge case PASSED"
+
+      - run:
+          name: Cleanup
+          command: docker stop registry && docker rm registry
+
+  # Test special characters in tags (semver with pre-release)
+  special-tags-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Start local registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            sleep 3
+
+      - run:
+          name: Build test image
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            CMD ["echo", "special tags test"]
+            EOF
+            docker build -t special:base .
+
+      # Test with semver including pre-release identifiers
+      - container-ops-orb/docker_tag:
+          source_image: "special:base"
+          target_image: "localhost:5000/special/app"
+          tags: "1.0.0-alpha.1 1.0.0-beta.2 1.0.0-rc.1 1.0.0"
+
+      - container-ops-orb/docker_push:
+          image: "localhost:5000/special/app"
+          tags: "1.0.0-alpha.1 1.0.0-beta.2 1.0.0-rc.1 1.0.0"
+
+      - run:
+          name: Verify special tags
+          command: |
+            docker pull localhost:5000/special/app:1.0.0-alpha.1
+            docker pull localhost:5000/special/app:1.0.0-beta.2
+            docker pull localhost:5000/special/app:1.0.0-rc.1
+            docker pull localhost:5000/special/app:1.0.0
+            echo "Special tags test PASSED"
+
+      - run:
+          name: Cleanup
+          command: docker stop registry && docker rm registry
+
+  # Test publish job with additional_tags parameter
+  publish-additional-tags-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Start local registry
+      - run:
+          name: Start local Docker registry
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            sleep 3
+
+      # Build and prepare test image
+      - run:
+          name: Build test image
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            LABEL org.opencontainers.image.title="Additional Tags Test"
+            CMD ["echo", "test"]
+            EOF
+            docker build -t addtags-app:sha123 .
+
+      # Archive the image
+      - container-ops-orb/docker_archive:
+          image: addtags-app
+          tag: sha123
+          persist_to_workspace: false
+
+      # Remove original image
+      - run:
+          name: Remove original image
+          command: docker rmi addtags-app:sha123
+
+      # Test full flow with additional tags
+      - container-ops-orb/docker_load:
+          image: addtags-app
+          archive_path: ~/images
+      - container-ops-orb/docker_tag:
+          source_image: "addtags-app:sha123"
+          target_image: "localhost:5000/org/addtags-app"
+          tags: "sha123 edge develop-sha123"
+      - container-ops-orb/docker_push:
+          image: "localhost:5000/org/addtags-app"
+          tags: "sha123 edge develop-sha123"
+
+      # Verify all tags
+      - run:
+          name: Verify all additional tags pushed
+          command: |
+            docker rmi localhost:5000/org/addtags-app:sha123 || true
+            docker rmi localhost:5000/org/addtags-app:edge || true
+            docker rmi localhost:5000/org/addtags-app:develop-sha123 || true
+            docker pull localhost:5000/org/addtags-app:sha123
+            docker pull localhost:5000/org/addtags-app:edge
+            docker pull localhost:5000/org/addtags-app:develop-sha123
+            echo "All additional tags verified!"
+
+      # Cleanup
+      - run:
+          name: Cleanup
+          command: docker stop registry && docker rm registry
+
   # Test the full build job
   job-test:
     machine:
@@ -140,8 +653,36 @@ jobs:
 workflows:
   test-deploy:
     jobs:
-      # Test individual commands
+      # Test individual docker commands (including tag)
       - command-test:
+          filters: *filters
+
+      # Test docker_tag and docker_push commands with local registry
+      - tag-push-command-test:
+          filters: *filters
+
+      # Test publish job flow with local registry
+      - publish-job-local-registry-test:
+          filters: *filters
+
+      # Test tagger orb integration
+      - tagger-integration-test:
+          filters: *filters
+
+      # Test publish with additional tags
+      - publish-additional-tags-test:
+          filters: *filters
+
+      # Full build-to-publish integration test
+      - build-publish-integration-test:
+          filters: *filters
+
+      # Edge case tests
+      - edge-case-empty-additional-tags-test:
+          filters: *filters
+
+      # Special tags test (semver with pre-release)
+      - special-tags-test:
           filters: *filters
 
       # Test the build job directly with minimal config
@@ -235,6 +776,13 @@ workflows:
           requires:
             - orb-tools/pack
             - command-test
+            - tag-push-command-test
+            - publish-job-local-registry-test
+            - tagger-integration-test
+            - publish-additional-tags-test
+            - build-publish-integration-test
+            - edge-case-empty-additional-tags-test
+            - special-tags-test
             - build-job-simple-test
             - build-job-multistage-test
             - build-job-custom-path-test

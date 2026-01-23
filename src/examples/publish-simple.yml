@@ -1,0 +1,23 @@
+description: |
+  Build and publish a Docker image to a container registry.
+  This example shows a basic build-publish workflow without signing or SBOM.
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    build-publish:
+      jobs:
+        - container-ops/build:
+            image: myapp
+        - container-ops/publish:
+            requires:
+              - container-ops/build
+            image: myapp
+            registry: ghcr.io
+            registry_namespace: myorg
+            context:
+              - docker-credentials

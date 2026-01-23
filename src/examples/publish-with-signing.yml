@@ -1,0 +1,31 @@
+description: |
+  Build and publish a Docker image with full supply chain security features.
+  This example enables image signing, SBOM generation, and SBOM attestation.
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    secure-publish:
+      jobs:
+        - container-ops/build:
+            image: myapp
+            tags: "${CIRCLE_SHA1} latest"
+        - container-ops/publish:
+            requires:
+              - container-ops/build
+            image: myapp
+            tag: "${CIRCLE_SHA1}"
+            additional_tags: "latest"
+            registry: ghcr.io
+            registry_namespace: myorg
+            sign: true
+            sbom: true
+            sbom_format: spdx-json
+            attest: true
+            context:
+              - docker-credentials
+              - signing-keys
