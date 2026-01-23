@@ -291,21 +291,20 @@ jobs:
       - run:
           name: Create tags file
           command: |
-            mkdir -p ~/workspace
-            cat > ~/workspace/tags.txt \<<'EOF'
+            cat > tags.txt \<<'EOF'
             1.2.3
             1.2
             1
             latest
             EOF
-            echo "Tags file created:"
-            cat ~/workspace/tags.txt
+            echo "Tags file created at $(pwd)/tags.txt:"
+            cat tags.txt
 
       # Test tagger/tag command (using directly imported tagger orb)
       - tagger/tag:
           source_image: "tagger-test:source"
           target_image: "localhost:5000/taggerorg/tagger-test"
-          tags_file: ~/workspace/tags.txt
+          tags_file: tags.txt
 
       # Verify tags were applied
       - run:
@@ -320,7 +319,7 @@ jobs:
       # Test tagger/push command
       - tagger/push:
           target_image: "localhost:5000/taggerorg/tagger-test"
-          tags_file: ~/workspace/tags.txt
+          tags_file: tags.txt
 
       # Test tagger/populate_tag command
       - tagger/populate_tag
