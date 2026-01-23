@@ -300,42 +300,13 @@ steps:
           - << parameters.sign >>
           - << parameters.sbom >>
       steps:
-        # 8a. Attest SBOM
+        # 8a. Prepare attestation (determine SBOM path and type)
         - run:
-            name: Determine SBOM path and attest
+            name: Prepare SBOM Attestation
             environment:
               PARAM_IMAGE: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
               PARAM_SBOM_FORMAT: << parameters.sbom_format >>
-              PARAM_PRIVATE_KEY: << parameters.cosign_private_key >>
-              PARAM_PASSWORD: << parameters.cosign_password >>
-            command: |
-              #!/bin/bash
-              set -euo pipefail
-
-              # Determine SBOM file path based on format
-              if [ "${PARAM_SBOM_FORMAT}" = "spdx-json" ]; then
-                SBOM_FILE=$(ls sboms/*.spdx.json 2>/dev/null | head -1)
-                PREDICATE_TYPE="spdxjson"
-              else
-                SBOM_FILE=$(ls sboms/*.cdx.json 2>/dev/null | head -1)
-                PREDICATE_TYPE="cyclonedx"
-              fi
-
-              if [ -z "${SBOM_FILE}" ]; then
-                echo "ERROR: No SBOM file found in sboms/ directory"
-                exit 1
-              fi
-
-              echo "Attesting SBOM to image..."
-              echo "  Image: ${PARAM_IMAGE}"
-              echo "  SBOM: ${SBOM_FILE}"
-              echo "  Predicate Type: ${PREDICATE_TYPE}"
-
-              # Export for subsequent cosign/attest command
-              {
-                echo "export SBOM_FILE='${SBOM_FILE}'"
-                echo "export PREDICATE_TYPE='${PREDICATE_TYPE}'"
-              } >> "${BASH_ENV}"
+            command: << include(scripts/docker/prepare_attestation.sh) >>
         - cosign/attest:
             image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
             predicate: ${SBOM_FILE}
