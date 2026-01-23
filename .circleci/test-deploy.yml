@@ -650,6 +650,196 @@ jobs:
             CMD ["echo", "Integration test passed"]
             EOF
 
+  # Test scan job - scan from local image (loaded from archive)
+  scan-local-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Build and archive a test image
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            LABEL org.opencontainers.image.title="Scan Test Image"
+            RUN apk add --no-cache curl
+            CMD ["echo", "Scan test image"]
+            EOF
+      - container-ops-orb/docker_build:
+          image: scan-test-app
+          tags: "scan123"
+      - container-ops-orb/docker_archive:
+          image: scan-test-app
+          tag: scan123
+          persist_to_workspace: false
+
+      # Remove image to ensure we load from archive
+      - run:
+          name: Remove image to test load
+          command: docker rmi scan-test-app:scan123
+
+      # Load and scan the image
+      - container-ops-orb/docker_load:
+          image: scan-test-app
+          archive_path: ~/images
+
+      # Install grype and scan
+      - container-ops-orb/grype/install:
+          version: "0.87.0"
+          caching: true
+      - container-ops-orb/grype/log_version
+      - container-ops-orb/grype/update_database:
+          caching: true
+
+      # Prepare scan configuration
+      - run:
+          name: Prepare Scan Config
+          environment:
+            PARAM_IMAGE: scan-test-app
+            PARAM_TAG: scan123
+            PARAM_SCAN_SOURCE: local
+            PARAM_ARCHIVE_PATH: ~/images
+            PARAM_REGISTRY: ""
+            PARAM_REGISTRY_NAMESPACE: ""
+            PARAM_OUTPUT_DIR: scan-results
+            PARAM_OUTPUT_FORMAT: sarif
+          command: |
+            mkdir -p scan-results
+            source src/scripts/grype/prepare_scan.sh
+
+      # Run the scan
+      - container-ops-orb/grype/scan_image:
+          image: scan-test-app:scan123
+          output_file: scan-results/scan-test-app__scan123.grype.sarif
+          output_format: sarif
+
+      # Verify scan output was created
+      - run:
+          name: Verify scan results
+          command: |
+            echo "Checking for scan results..."
+            ls -la scan-results/
+            if [ -f scan-results/scan-test-app__scan123.grype.sarif ]; then
+              echo "Scan results found!"
+              head -50 scan-results/scan-test-app__scan123.grype.sarif
+            else
+              echo "ERROR: Scan results not found"
+              exit 1
+            fi
+
+  # Test scan job - scan from archive directly
+  scan-archive-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Build and archive a test image
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            CMD ["echo", "Archive scan test"]
+            EOF
+      - container-ops-orb/docker_build:
+          image: archive-scan-app
+          tags: "archscan"
+      - container-ops-orb/docker_archive:
+          image: archive-scan-app
+          tag: archscan
+          persist_to_workspace: false
+
+      # Install grype
+      - container-ops-orb/grype/install:
+          version: "0.87.0"
+          caching: true
+      - container-ops-orb/grype/update_database:
+          caching: true
+
+      # Scan directly from archive using docker-archive: scheme
+      - run:
+          name: Scan from archive directly
+          command: |
+            mkdir -p scan-results
+            grype "docker-archive:$HOME/images/archive-scan-app-img.tar" -o json > scan-results/archive-scan.json
+
+      # Verify results
+      - run:
+          name: Verify archive scan results
+          command: |
+            if [ -f scan-results/archive-scan.json ]; then
+              echo "Archive scan results found!"
+              echo "Vulnerability count:"
+              grep -c '"vulnerability"' scan-results/archive-scan.json || echo "0 vulnerabilities found"
+            else
+              echo "ERROR: Archive scan results not found"
+              exit 1
+            fi
+
+  # Test scan job with different output formats
+  scan-formats-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      # Build test image
+      - run:
+          name: Create test Dockerfile
+          command: |
+            cat > Dockerfile \<<'EOF'
+            FROM alpine:3.20
+            CMD ["echo", "Format test"]
+            EOF
+            docker build -t format-test:v1 .
+
+      # Install grype
+      - container-ops-orb/grype/install:
+          version: "0.87.0"
+          caching: true
+      - container-ops-orb/grype/update_database:
+          caching: true
+
+      # Test multiple output formats
+      - run:
+          name: Test SARIF format
+          command: |
+            mkdir -p scan-results
+            grype format-test:v1 -o sarif > scan-results/test.sarif
+            echo "SARIF output created"
+            head -20 scan-results/test.sarif
+
+      - run:
+          name: Test JSON format
+          command: |
+            grype format-test:v1 -o json > scan-results/test.json
+            echo "JSON output created"
+            head -20 scan-results/test.json
+
+      - run:
+          name: Test table format
+          command: |
+            grype format-test:v1 -o table > scan-results/test.txt
+            echo "Table output created"
+            cat scan-results/test.txt
+
+      - run:
+          name: Test CycloneDX JSON format
+          command: |
+            grype format-test:v1 -o cyclonedx-json > scan-results/test.cdx.json
+            echo "CycloneDX JSON output created"
+            head -20 scan-results/test.cdx.json
+
+      - run:
+          name: Verify all formats created
+          command: |
+            echo "All scan result files:"
+            ls -la scan-results/
+            echo "All formats test PASSED!"
+
 workflows:
   test-deploy:
     jobs:
@@ -683,6 +873,16 @@ workflows:
 
       # Special tags test (semver with pre-release)
       - special-tags-test:
+          filters: *filters
+
+      # Scan job tests
+      - scan-local-test:
+          filters: *filters
+
+      - scan-archive-test:
+          filters: *filters
+
+      - scan-formats-test:
           filters: *filters
 
       # Test the build job directly with minimal config
@@ -783,6 +983,9 @@ workflows:
             - build-publish-integration-test
             - edge-case-empty-additional-tags-test
             - special-tags-test
+            - scan-local-test
+            - scan-archive-test
+            - scan-formats-test
             - build-job-simple-test
             - build-job-multistage-test
             - build-job-custom-path-test

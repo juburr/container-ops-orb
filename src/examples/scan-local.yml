@@ -1,0 +1,29 @@
+description: |
+  Build and scan a container image for vulnerabilities before publishing.
+  This workflow scans the local image from the build job's archive.
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    build-scan-publish:
+      jobs:
+        - container-ops/build:
+            image: myapp
+        - container-ops/scan:
+            requires:
+              - container-ops/build
+            image: myapp
+            scan_source: local
+            fail_on: high
+        - container-ops/publish:
+            requires:
+              - container-ops/scan
+            image: myapp
+            registry: ghcr.io
+            registry_namespace: myorg
+            context:
+              - docker-credentials
