@@ -237,9 +237,7 @@ steps:
       steps:
         - run:
             name: Display Scan Results
-            command: |
-              echo "=== Vulnerability Scan Results ==="
-              cat "${SCAN_OUTPUT_FILE}"
+            command: << include(scripts/grype/display_results.sh) >>
 
   # 10. Post-steps hook
   - steps: << parameters.post_steps >>
