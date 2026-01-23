@@ -7,6 +7,8 @@ orbs:
   container-ops-orb: {}
   # Import tagger orb directly for integration testing
   tagger: juburr/container-tagger-orb@0.7.4
+  # Import grype orb directly for scan testing
+  grype: juburr/grype-orb@0.3.12
 
 # Use this tag to ensure test jobs always run,
 # even though the downstream publish job will only run on release tags.
@@ -686,11 +688,11 @@ jobs:
           archive_path: ~/images
 
       # Install grype and scan
-      - container-ops-orb/grype/install:
+      - grype/install:
           version: "0.87.0"
           caching: true
-      - container-ops-orb/grype/log_version
-      - container-ops-orb/grype/update_database:
+      - grype/log_version
+      - grype/update_database:
           caching: true
 
       # Prepare scan configuration
@@ -710,7 +712,7 @@ jobs:
             source src/scripts/grype/prepare_scan.sh
 
       # Run the scan
-      - container-ops-orb/grype/scan_image:
+      - grype/scan_image:
           image: scan-test-app:scan123
           output_file: scan-results/scan-test-app__scan123.grype.sarif
           output_format: sarif
@@ -753,10 +755,10 @@ jobs:
           persist_to_workspace: false
 
       # Install grype
-      - container-ops-orb/grype/install:
+      - grype/install:
           version: "0.87.0"
           caching: true
-      - container-ops-orb/grype/update_database:
+      - grype/update_database:
           caching: true
 
       # Scan directly from archive using docker-archive: scheme
@@ -797,10 +799,10 @@ jobs:
             docker build -t format-test:v1 .
 
       # Install grype
-      - container-ops-orb/grype/install:
+      - grype/install:
           version: "0.87.0"
           caching: true
-      - container-ops-orb/grype/update_database:
+      - grype/update_database:
           caching: true
 
       # Test multiple output formats
