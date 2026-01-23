@@ -1,0 +1,41 @@
+description: |
+  Scan a container image with a security gate that fails the pipeline
+  if high or critical vulnerabilities are found. Uses SARIF output
+  for integration with security dashboards.
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    secure-build:
+      jobs:
+        - container-ops/build:
+            image: myapp
+            tags: "${CIRCLE_SHA1}"
+
+        # Security gate - fail on high/critical vulnerabilities
+        - container-ops/scan:
+            name: security-scan
+            requires:
+              - container-ops/build
+            image: myapp
+            scan_source: local
+            output_format: sarif
+            fail_on: high
+            log_results: true
+
+        # Only publish if security scan passes
+        - container-ops/publish:
+            requires:
+              - security-scan
+            image: myapp
+            registry: ghcr.io
+            registry_namespace: myorg
+            sign: true
+            sbom: true
+            context:
+              - docker-credentials
+              - signing-keys

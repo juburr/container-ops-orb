@@ -1,0 +1,23 @@
+description: |
+  Scan a published container image from a registry.
+  Useful for periodic vulnerability scans of production images.
+
+usage:
+  version: "2.1"
+
+  orbs:
+    container-ops: juburr/container-ops-orb@1.0.0
+
+  workflows:
+    scan-published:
+      jobs:
+        - container-ops/scan:
+            image: myapp
+            tag: "latest"
+            scan_source: registry
+            registry: ghcr.io
+            registry_namespace: myorg
+            output_format: sarif
+            fail_on: critical
+            context:
+              - docker-credentials

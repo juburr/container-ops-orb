@@ -1,0 +1,259 @@
+description: |
+  Scan a container image for vulnerabilities using Grype.
+
+  This job supports multiple scanning modes:
+  - Scan a local image loaded from an archived tar file (from build job)
+  - Scan a published image directly from a container registry
+  - Scan an archive file directly without loading into Docker
+
+  The job can optionally fail based on vulnerability severity thresholds,
+  making it suitable for security gates in CI/CD pipelines.
+
+executor: << parameters.executor >>
+
+parameters:
+  # === EXECUTOR CONFIGURATION ===
+  executor:
+    type: executor
+    default: default
+    description: |
+      The executor to use for the scan job. Defaults to a machine executor
+      with Docker pre-installed for native Docker support.
+
+  # === IMAGE CONFIGURATION ===
+  image:
+    type: string
+    description: |
+      (Required) The image to scan. This can be:
+      - A local image name (e.g., "myapp" when loading from archive)
+      - A full registry path (e.g., "ghcr.io/myorg/myapp:v1.0.0")
+      The interpretation depends on the scan_source parameter.
+
+  tag:
+    type: string
+    default: "${CIRCLE_SHA1}"
+    description: |
+      Tag of the image to scan. Used when loading from archive or
+      constructing the full image reference.
+
+  # === SCAN SOURCE CONFIGURATION ===
+  scan_source:
+    type: enum
+    enum: ["local", "registry", "archive"]
+    default: "local"
+    description: |
+      How to access the image for scanning:
+      - local: Load image from archived tar file, then scan locally
+      - registry: Scan image directly from container registry (no pull needed)
+      - archive: Scan the tar archive file directly using docker-archive: scheme
+
+  archive_path:
+    type: string
+    default: "~/images"
+    description: |
+      Directory where the archived image tar is located.
+      Used when scan_source is "local" or "archive".
+
+  # === REGISTRY CONFIGURATION (for registry scan source) ===
+  registry:
+    type: string
+    default: ""
+    description: |
+      Container registry hostname for registry scans.
+      When set with scan_source=registry, constructs full image path.
+      Examples: "ghcr.io", "docker.io", "gcr.io"
+
+  registry_namespace:
+    type: string
+    default: ""
+    description: |
+      Registry namespace or organization path.
+      Used with registry to construct: registry/namespace/image:tag
+
+  registry_username:
+    type: env_var_name
+    default: DOCKER_USERNAME
+    description: |
+      Name of the environment variable containing the registry username.
+      Only used when registry authentication is needed.
+
+  registry_password:
+    type: env_var_name
+    default: DOCKER_PASSWORD
+    description: |
+      Name of the environment variable containing the registry password.
+      Only used when registry authentication is needed.
+
+  # === GRYPE CONFIGURATION ===
+  grype_version:
+    type: string
+    default: "0.87.0"
+    description: |
+      Version of Grype to install for scanning.
+
+  output_format:
+    type: enum
+    enum: ["json", "table", "cyclonedx", "cyclonedx-json", "sarif"]
+    default: "sarif"
+    description: |
+      Output format for scan results:
+      - sarif: SARIF format (default, integrates with security tools)
+      - json: JSON format for programmatic parsing
+      - table: Human-readable table format
+      - cyclonedx: CycloneDX XML format
+      - cyclonedx-json: CycloneDX JSON format
+
+  fail_on:
+    type: enum
+    enum: ["", "negligible", "low", "medium", "high", "critical"]
+    default: ""
+    description: |
+      Fail the job if vulnerabilities at or above this severity are found.
+      Leave empty to never fail based on vulnerabilities.
+      Severity levels from lowest to highest:
+      negligible < low < medium < high < critical
+
+  # === OUTPUT CONFIGURATION ===
+  output_dir:
+    type: string
+    default: "scan-results"
+    description: |
+      Directory to store scan results.
+
+  log_results:
+    type: boolean
+    default: true
+    description: |
+      Output scan results to the job logs.
+
+  persist_to_workspace:
+    type: boolean
+    default: true
+    description: |
+      Persist scan results to the CircleCI workspace for downstream jobs.
+
+  workspace_root:
+    type: string
+    default: "."
+    description: |
+      Root directory for workspace persistence.
+
+  # === WORKSPACE CONFIGURATION ===
+  attach_workspace:
+    type: boolean
+    default: true
+    description: |
+      Attach a workspace from a previous job. Required when scanning
+      from archived images produced by the build job.
+
+  attach_workspace_at:
+    type: string
+    default: "~"
+    description: |
+      Path where the workspace should be attached.
+
+  # === WORKFLOW CUSTOMIZATION ===
+  pre_steps:
+    type: steps
+    default: []
+    description: |
+      Steps to execute before the scan process begins.
+
+  post_steps:
+    type: steps
+    default: []
+    description: |
+      Steps to execute after the scan process completes.
+
+steps:
+  # 1. Workspace attachment (conditional)
+  - when:
+      condition: << parameters.attach_workspace >>
+      steps:
+        - attach_workspace:
+            at: << parameters.attach_workspace_at >>
+
+  # 2. Pre-steps hook
+  - steps: << parameters.pre_steps >>
+
+  # 3. Create output directory
+  - run:
+      name: Create Scan Output Directory
+      command: mkdir -p << parameters.output_dir >>
+
+  # 4. Registry login (conditional - for registry scans that need auth)
+  - when:
+      condition: << parameters.registry >>
+      steps:
+        - docker_login:
+            registry: << parameters.registry >>
+            username: << parameters.registry_username >>
+            password: << parameters.registry_password >>
+
+  # 5. Load image from archive (for local scan source)
+  - when:
+      condition:
+        equal: ["local", << parameters.scan_source >>]
+      steps:
+        - docker_load:
+            image: << parameters.image >>
+            archive_path: << parameters.archive_path >>
+
+  # 6. Install and configure Grype
+  - grype/install:
+      version: << parameters.grype_version >>
+      caching: true
+      verify_checksums: strict
+
+  - grype/log_version
+
+  - grype/update_database:
+      caching: true
+
+  # 7. Prepare scan target and output file
+  - run:
+      name: Prepare Scan Configuration
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_TAG: << parameters.tag >>
+        PARAM_SCAN_SOURCE: << parameters.scan_source >>
+        PARAM_ARCHIVE_PATH: << parameters.archive_path >>
+        PARAM_REGISTRY: << parameters.registry >>
+        PARAM_REGISTRY_NAMESPACE: << parameters.registry_namespace >>
+        PARAM_OUTPUT_DIR: << parameters.output_dir >>
+        PARAM_OUTPUT_FORMAT: << parameters.output_format >>
+      command: << include(scripts/grype/prepare_scan.sh) >>
+
+  # 8. Execute Grype scan
+  - grype/scan_image:
+      image: ${SCAN_TARGET}
+      output_file: ${SCAN_OUTPUT_FILE}
+      output_format: << parameters.output_format >>
+      fail_on: << parameters.fail_on >>
+
+  # 9. Log scan results (conditional)
+  - when:
+      condition: << parameters.log_results >>
+      steps:
+        - run:
+            name: Display Scan Results
+            command: << include(scripts/grype/display_results.sh) >>
+
+  # 10. Post-steps hook
+  - steps: << parameters.post_steps >>
+
+  # 11. Registry logout (conditional)
+  - when:
+      condition: << parameters.registry >>
+      steps:
+        - docker_logout:
+            registry: << parameters.registry >>
+
+  # 12. Persist results to workspace (conditional)
+  - when:
+      condition: << parameters.persist_to_workspace >>
+      steps:
+        - persist_to_workspace:
+            root: << parameters.workspace_root >>
+            paths:
+              - << parameters.output_dir >>
