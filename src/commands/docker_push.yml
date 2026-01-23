@@ -1,0 +1,26 @@
+description: |
+  Push Docker image tags to a container registry.
+  This command pushes one or more tagged images to a registry.
+  Requires prior authentication via docker_login.
+
+parameters:
+  image:
+    type: string
+    description: |
+      (Required) The image reference without tag. This should include
+      the registry and namespace. Example: "ghcr.io/myorg/myapp"
+
+  tags:
+    type: string
+    description: |
+      (Required) Space-separated list of tags to push to the registry.
+      Supports environment variable substitution.
+      Example: "latest v1.0.0 ${CIRCLE_SHA1}"
+
+steps:
+  - run:
+      name: Docker Push
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_TAGS: << parameters.tags >>
+      command: << include(scripts/docker/push.sh) >>
