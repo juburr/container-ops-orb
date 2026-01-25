@@ -6,7 +6,7 @@ usage:
   version: "2.1"
 
   orbs:
-    container-ops: juburr/container-ops-orb@1.0.0
+    container-ops: juburr/container-ops-orb@0.1.0
 
   workflows:
     scan-published:
