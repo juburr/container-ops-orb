@@ -6,16 +6,16 @@ usage:
   version: "2.1"
 
   orbs:
-    container-ops: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.1.0
 
   workflows:
     build-publish:
       jobs:
-        - container-ops/build:
+        - container-ops-orb/build:
             image: myapp
-        - container-ops/publish:
+        - container-ops-orb/publish:
             requires:
-              - container-ops/build
+              - container-ops-orb/build
             image: myapp
             registry: ghcr.io
             registry_namespace: myorg

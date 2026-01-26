@@ -7,20 +7,20 @@ usage:
   version: "2.1"
 
   orbs:
-    container-ops: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.1.0
 
   workflows:
     secure-build:
       jobs:
-        - container-ops/build:
+        - container-ops-orb/build:
             image: myapp
             tags: "${CIRCLE_SHA1}"
 
         # Security gate - fail on high/critical vulnerabilities
-        - container-ops/scan:
+        - container-ops-orb/scan:
             name: security-scan
             requires:
-              - container-ops/build
+              - container-ops-orb/build
             image: myapp
             scan_source: local
             output_format: sarif
@@ -28,7 +28,7 @@ usage:
             log_results: true
 
         # Only publish if security scan passes
-        - container-ops/publish:
+        - container-ops-orb/publish:
             requires:
               - security-scan
             image: myapp

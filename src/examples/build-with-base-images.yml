@@ -9,12 +9,12 @@ usage:
   version: "2.1"
 
   orbs:
-    container-ops: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.1.0
 
   workflows:
     build-workflow:
       jobs:
-        - container-ops/build:
+        - container-ops-orb/build:
             image: myorg/myapp
             tags: "latest v1.0.0 ${CIRCLE_SHA1}"
             dockerfile: containers/prod/Dockerfile
