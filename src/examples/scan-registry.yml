@@ -6,12 +6,12 @@ usage:
   version: "2.1"
 
   orbs:
-    container-ops: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.1.0
 
   workflows:
     scan-published:
       jobs:
-        - container-ops/scan:
+        - container-ops-orb/scan:
             image: myapp
             tag: "latest"
             scan_source: registry
