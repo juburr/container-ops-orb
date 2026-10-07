@@ -8,7 +8,7 @@ orbs:
   # Import tagger orb directly for integration testing
   tagger: juburr/container-tagger-orb@0.7.4
   # Import grype orb directly for scan testing
-  grype: juburr/grype-orb@0.3.12
+  grype: juburr/grype-orb@0.5.0
 
 # Use this tag to ensure test jobs always run,
 # even though the downstream publish job will only run on release tags.
