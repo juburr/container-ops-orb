@@ -22,7 +22,7 @@ The `publish` job is **tag-oriented** and **single-platform**. Check that this f
 `publish` loads the image archive saved by `build`. For each tag (`tag` plus `additional_tags`, or each line of `tags_file`) it runs `docker tag` and `docker push`. Signing, SBOM generation and attestation then refer to the image by tag, as `<registry>/<registry_namespace>/<image>:<tag>`.
 
 - Cosign signs a digest, not a tag. The cosign orb looks up the tag's digest when the signing and attestation steps run. With `crane` on the `PATH` it asks the registry, so if another pipeline moves the tag after this job's push, the job signs that other image. Without `crane` it uses the digest Docker recorded when this job pushed the tag. The verification steps look the tag up in the registry when they run.
-- With `tags_file`, only the tags listed in the file are pushed, but signing, SBOM generation and attestation still use the `tag` parameter. If `sign` or `sbom` is enabled, include the `tag` value in the tags file. Otherwise that tag is not in the registry and those steps fail.
+- With `tags_file`, only the tags listed in the file are pushed, but signing, SBOM generation and attestation still use the `tag` parameter. If `sign` or `sbom` is enabled, include the `tag` value in the tags file. Otherwise those steps fail because the tag is not in the registry. If an earlier publish left an image under that tag, they sign and inventory that older image instead.
 - The job does not record the digest it pushed. A downstream job that needs the digest must look up the tag itself, for example with `crane digest`.
 
 ### Single-platform
@@ -31,13 +31,13 @@ The `publish` job is **tag-oriented** and **single-platform**. Check that this f
 - `build` runs `docker build`. When `platforms` is set, it runs `docker buildx build --load` instead. With Docker's classic image store, `--load` handles only one platform, so give `platforms` a single target such as `linux/arm64`, not a list.
 - `docker save` and `docker load` move that image between jobs, and `docker push` publishes it under each tag.
 
-Multi-platform images (an OCI image index covering several architectures) are not supported. To publish one today, build and push it in your own job, for example with `docker buildx build --platform linux/amd64,linux/arm64 --push`. Then sign, attest and generate its SBOM with the `cosign` and `syft` orbs directly.
+Multi-platform images (an OCI image index covering several architectures) are not supported. To publish one today, build and push it in your own job, for example with `docker buildx build --platform linux/amd64,linux/arm64 --tag <registry>/<namespace>/<image>:<tag> --push .`. Then sign and attest it with the `cosign` orb directly. Syft scans only one platform of an image index, so generate one SBOM per platform with the `syft` orb, for example by passing each platform's manifest digest (`<registry>/<namespace>/<image>@sha256:...`) as the source.
 
 ### Possible future feature: digest-first, multi-arch publishing
 This is not available in the orb today. A digest-first publish would build all platforms first, then tag once:
 
 1. Build every platform and push them as a single image index, addressed by digest, with no tags yet.
-2. Sign, attest and generate SBOMs against that digest.
+2. Sign and attest that digest, and generate an SBOM for each platform's manifest.
 3. Apply every tag to the digest in the registry in one step without pushing the image again, for example with the `tag_digest` command from `container-tagger-orb`.
 
 Signatures would then never depend on where a tag points, and every tag would carry every platform.
