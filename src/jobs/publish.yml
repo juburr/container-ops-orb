@@ -9,6 +9,10 @@ description: |
 
   Designed to work with the build job in a build-once, publish-many workflow.
 
+  Publishing is tag-oriented and single-platform: signing, SBOM generation
+  and attestation refer to the image as registry/namespace/image:tag, and
+  multi-platform images are not supported. See the README for details.
+
 executor: << parameters.executor >>
 
 parameters:

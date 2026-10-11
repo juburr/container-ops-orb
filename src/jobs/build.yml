@@ -3,7 +3,7 @@ description: |
   - Multi-stage Dockerfile support
   - OCI-compliant label injection
   - Base image pre-pulling (for local-only images like those from apko/melange)
-  - Multi-platform builds with buildx
+  - Cross-platform builds for a single target platform with buildx
   - Docker layer caching
   - Workspace persistence for downstream jobs (publish, scan)
 
@@ -120,14 +120,18 @@ parameters:
       images from the registry. Note: This will fail if any base image
       only exists locally. Use pull_base_images for mixed scenarios.
 
-  # === MULTI-PLATFORM SUPPORT ===
+  # === TARGET PLATFORM ===
   platforms:
     type: string
     default: ""
     description: |
-      Comma-separated list of target platforms for multi-platform builds
-      using Docker buildx. Example: "linux/amd64,linux/arm64"
-      Leave empty for single-platform builds using standard docker build.
+      Target platform for a cross-platform build with Docker buildx.
+      Example: "linux/arm64"
+      The image is loaded into the local Docker image store with --load,
+      which with Docker's classic image store holds one platform, so give
+      a single platform. Multi-platform images are not supported (see the
+      README).
+      Leave empty to build for the runner's platform with docker build.
 
   buildx_builder:
     type: string

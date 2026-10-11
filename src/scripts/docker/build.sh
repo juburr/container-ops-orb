@@ -2,7 +2,7 @@
 
 # Docker Build Script
 # Builds a Docker container image with support for multi-stage builds,
-# OCI-compliant labels, buildx multi-platform builds, and multiple tags.
+# OCI-compliant labels, buildx cross-platform builds, and multiple tags.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -79,7 +79,7 @@ fi
 # Build the docker command
 BUILD_CMD=("docker")
 
-# Use buildx for multi-platform builds
+# Use buildx when a target platform is given
 if [ -n "${PLATFORMS}" ]; then
     BUILD_CMD+=("buildx" "build")
     BUILD_CMD+=("--platform" "${PLATFORMS}")
