@@ -91,6 +91,21 @@ parameters:
     description: |
       Version of Grype to install for scanning.
 
+  verify_checksums:
+    type: enum
+    enum: ["false", "known_versions", "strict"]
+    default: "strict"
+    description: |
+      SHA-512 checksum verification for the Grype download.
+      Passed to grype/install.
+      - strict: fail unless the version's checksum is known to the grype orb
+        and matches (recommended)
+      - known_versions: verify known versions, but install unknown versions
+        without verification
+      - false: never verify (not recommended)
+      With strict, setting grype_version to a release the grype orb has no
+      checksum for fails the job.
+
   output_format:
     type: enum
     enum: ["json", "table", "cyclonedx", "cyclonedx-json", "sarif"]
@@ -203,7 +218,7 @@ steps:
   - grype/install:
       version: << parameters.grype_version >>
       caching: true
-      verify_checksums: strict
+      verify_checksums: << parameters.verify_checksums >>
 
   - grype/log_version
 
