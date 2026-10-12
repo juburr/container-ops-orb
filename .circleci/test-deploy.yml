@@ -966,6 +966,32 @@ workflows:
                   EOF
           filters: *filters
 
+      # Test the scan job directly, installing Grype through verify_checksums
+      - container-ops-orb/scan:
+          name: scan-job-test
+          image: scan-job-app
+          tag: scanjob
+          scan_source: local
+          verify_checksums: strict
+          attach_workspace: false
+          persist_to_workspace: false
+          pre_steps:
+            - run:
+                name: Create test Dockerfile
+                command: |
+                  cat > Dockerfile \<<'EOF'
+                  FROM alpine:3.20
+                  CMD ["echo", "Scan job test"]
+                  EOF
+            - container-ops-orb/docker_build:
+                image: scan-job-app
+                tags: "scanjob"
+            - container-ops-orb/docker_archive:
+                image: scan-job-app
+                tag: scanjob
+                persist_to_workspace: false
+          filters: *filters
+
       # The orb must be re-packed for publishing, and saved to the workspace.
       - orb-tools/pack:
           filters: *release-filters
@@ -991,5 +1017,6 @@ workflows:
             - build-job-simple-test
             - build-job-multistage-test
             - build-job-custom-path-test
+            - scan-job-test
           context: orb-publishing
           filters: *release-filters

@@ -101,6 +101,22 @@ parameters:
       Each line in the file should contain one tag.
       Example: "~/workspace/tags.txt"
 
+  # === TOOL INSTALLATION ===
+  verify_checksums:
+    type: enum
+    enum: ["false", "known_versions", "strict"]
+    default: "strict"
+    description: |
+      SHA-512 checksum verification for the Cosign and Syft downloads.
+      Passed to cosign/install and syft/install.
+      - strict: fail unless the version's checksum is known to the installing
+        orb and matches (recommended)
+      - known_versions: verify known versions, but install unknown versions
+        without verification
+      - false: never verify (not recommended)
+      With strict, setting cosign_version or syft_version to a release the
+      installing orb has no checksum for fails the job.
+
   # === SIGNING CONFIGURATION ===
   sign:
     type: boolean
@@ -256,6 +272,7 @@ steps:
         - cosign/install:
             version: << parameters.cosign_version >>
             caching: true
+            verify_checksums: << parameters.verify_checksums >>
         # 6b. Sign image
         - cosign/sign_image:
             image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
@@ -277,6 +294,7 @@ steps:
         - syft/install:
             version: << parameters.syft_version >>
             caching: true
+            verify_checksums: << parameters.verify_checksums >>
         # 7b. Generate SBOM
         - syft/generate_sbom:
             source: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
