@@ -57,6 +57,21 @@ jobs:
           image: test-image
           tags: "test-tag ${CIRCLE_SHA1}"
           oci_labels: true
+      # extra_docker_args starts with "-", which circleci env subst must not
+      # parse as one of its own flags, and its ${CIRCLE_SHA1} must still expand.
+      - container-ops-orb/docker_build:
+          image: test-image-extra-args
+          tags: test-tag
+          extra_docker_args: "--no-cache --label orb-test.extra-args=${CIRCLE_SHA1}"
+      - run:
+          name: Verify extra_docker_args reached docker build
+          command: |
+            label=$(docker image inspect --format '{{ index .Config.Labels "orb-test.extra-args" }}' test-image-extra-args:test-tag)
+            if [ "${label}" != "${CIRCLE_SHA1}" ]; then
+              echo "ERROR: expected label orb-test.extra-args=${CIRCLE_SHA1}, got '${label}'"
+              exit 1
+            fi
+            echo "extra_docker_args were passed through and expanded."
       # Test docker-inspect command
       - container-ops-orb/docker_inspect:
           image: test-image

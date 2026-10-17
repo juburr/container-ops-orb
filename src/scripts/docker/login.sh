@@ -15,7 +15,7 @@ fi
 
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
-    REGISTRY=$(circleci env subst "${PARAM_REGISTRY}")
+    REGISTRY=$(printf '%s' "${PARAM_REGISTRY}" | circleci env subst)
 else
     REGISTRY="${PARAM_REGISTRY}"
 fi

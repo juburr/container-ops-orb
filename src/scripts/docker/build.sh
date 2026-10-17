@@ -18,16 +18,16 @@ done
 
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
-    IMAGE=$(circleci env subst "${PARAM_IMAGE}")
-    TAGS=$(circleci env subst "${PARAM_TAGS}")
-    DOCKERFILE=$(circleci env subst "${PARAM_DOCKERFILE}")
-    CONTEXT=$(circleci env subst "${PARAM_CONTEXT}")
-    TARGET=$(circleci env subst "${PARAM_TARGET}")
-    BUILD_ARGS=$(circleci env subst "${PARAM_BUILD_ARGS}")
-    EXTRA_DOCKER_ARGS=$(circleci env subst "${PARAM_EXTRA_DOCKER_ARGS}")
-    VERSION=$(circleci env subst "${PARAM_VERSION}")
-    PLATFORMS=$(circleci env subst "${PARAM_PLATFORMS}")
-    BUILDX_BUILDER=$(circleci env subst "${PARAM_BUILDX_BUILDER}")
+    IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
+    TAGS=$(printf '%s' "${PARAM_TAGS}" | circleci env subst)
+    DOCKERFILE=$(printf '%s' "${PARAM_DOCKERFILE}" | circleci env subst)
+    CONTEXT=$(printf '%s' "${PARAM_CONTEXT}" | circleci env subst)
+    TARGET=$(printf '%s' "${PARAM_TARGET}" | circleci env subst)
+    BUILD_ARGS=$(printf '%s' "${PARAM_BUILD_ARGS}" | circleci env subst)
+    EXTRA_DOCKER_ARGS=$(printf '%s' "${PARAM_EXTRA_DOCKER_ARGS}" | circleci env subst)
+    VERSION=$(printf '%s' "${PARAM_VERSION}" | circleci env subst)
+    PLATFORMS=$(printf '%s' "${PARAM_PLATFORMS}" | circleci env subst)
+    BUILDX_BUILDER=$(printf '%s' "${PARAM_BUILDX_BUILDER}" | circleci env subst)
 else
     IMAGE="${PARAM_IMAGE}"
     TAGS="${PARAM_TAGS}"

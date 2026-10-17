@@ -8,14 +8,14 @@ IFS=$'\n\t'
 
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
-    IMAGE=$(circleci env subst "${PARAM_IMAGE}")
-    TAG=$(circleci env subst "${PARAM_TAG}")
-    SCAN_SOURCE=$(circleci env subst "${PARAM_SCAN_SOURCE}")
-    ARCHIVE_PATH=$(circleci env subst "${PARAM_ARCHIVE_PATH}")
-    REGISTRY=$(circleci env subst "${PARAM_REGISTRY}")
-    REGISTRY_NAMESPACE=$(circleci env subst "${PARAM_REGISTRY_NAMESPACE}")
-    OUTPUT_DIR=$(circleci env subst "${PARAM_OUTPUT_DIR}")
-    OUTPUT_FORMAT=$(circleci env subst "${PARAM_OUTPUT_FORMAT}")
+    IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
+    TAG=$(printf '%s' "${PARAM_TAG}" | circleci env subst)
+    SCAN_SOURCE=$(printf '%s' "${PARAM_SCAN_SOURCE}" | circleci env subst)
+    ARCHIVE_PATH=$(printf '%s' "${PARAM_ARCHIVE_PATH}" | circleci env subst)
+    REGISTRY=$(printf '%s' "${PARAM_REGISTRY}" | circleci env subst)
+    REGISTRY_NAMESPACE=$(printf '%s' "${PARAM_REGISTRY_NAMESPACE}" | circleci env subst)
+    OUTPUT_DIR=$(printf '%s' "${PARAM_OUTPUT_DIR}" | circleci env subst)
+    OUTPUT_FORMAT=$(printf '%s' "${PARAM_OUTPUT_FORMAT}" | circleci env subst)
 else
     IMAGE="${PARAM_IMAGE}"
     TAG="${PARAM_TAG}"

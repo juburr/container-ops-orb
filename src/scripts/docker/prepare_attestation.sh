@@ -8,8 +8,8 @@ IFS=$'\n\t'
 
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
-    IMAGE=$(circleci env subst "${PARAM_IMAGE}")
-    SBOM_FORMAT=$(circleci env subst "${PARAM_SBOM_FORMAT}")
+    IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
+    SBOM_FORMAT=$(printf '%s' "${PARAM_SBOM_FORMAT}" | circleci env subst)
 else
     IMAGE="${PARAM_IMAGE}"
     SBOM_FORMAT="${PARAM_SBOM_FORMAT}"

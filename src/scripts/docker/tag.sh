@@ -14,9 +14,9 @@ fi
 
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
-    SOURCE_IMAGE=$(circleci env subst "${PARAM_SOURCE_IMAGE}")
-    TARGET_IMAGE=$(circleci env subst "${PARAM_TARGET_IMAGE}")
-    TAGS=$(circleci env subst "${PARAM_TAGS}")
+    SOURCE_IMAGE=$(printf '%s' "${PARAM_SOURCE_IMAGE}" | circleci env subst)
+    TARGET_IMAGE=$(printf '%s' "${PARAM_TARGET_IMAGE}" | circleci env subst)
+    TAGS=$(printf '%s' "${PARAM_TAGS}" | circleci env subst)
 else
     SOURCE_IMAGE="${PARAM_SOURCE_IMAGE}"
     TARGET_IMAGE="${PARAM_TARGET_IMAGE}"

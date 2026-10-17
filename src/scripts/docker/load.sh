@@ -14,8 +14,8 @@ fi
 
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
-    IMAGE=$(circleci env subst "${PARAM_IMAGE}")
-    ARCHIVE_PATH=$(circleci env subst "${PARAM_ARCHIVE_PATH}")
+    IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
+    ARCHIVE_PATH=$(printf '%s' "${PARAM_ARCHIVE_PATH}" | circleci env subst)
 else
     IMAGE="${PARAM_IMAGE}"
     ARCHIVE_PATH="${PARAM_ARCHIVE_PATH}"
