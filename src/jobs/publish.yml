@@ -19,25 +19,33 @@ parameters:
   # === EXECUTOR CONFIGURATION ===
   executor:
     type: executor
-    default: default
+    default: machine
     description: |
-      The executor to use for the publish job. Defaults to a machine executor
-      with Docker pre-installed. The machine executor is recommended as it
-      provides native Docker support without requiring setup_remote_docker.
+      The executor to use for the publish job. Defaults to this orb's machine
+      executor, a Linux VM with Docker pre-installed. A machine executor is
+      recommended as it provides native Docker support without requiring
+      setup_remote_docker.
 
   # === IMAGE CONFIGURATION ===
   image:
     type: string
     description: |
-      (Required) The local image name from the build job. This should match
-      the image name used when building and archiving. Example: "myapp"
+      (Required) The local image name (repository, without a tag) from the
+      build job. This should match the image name used when building and
+      saving; it selects the archive <image>-img.tar. Example: "myapp"
 
   tag:
     type: string
     default: "${CIRCLE_SHA1}"
     description: |
-      The primary tag of the archived image to load. This is typically the
-      commit SHA or a version tag. Supports environment variable substitution.
+      The source tag: the job retags the loaded image <image>:<tag> for the
+      registry, and signs, inventories (SBOM) and attests
+      <registry>/<registry_namespace>/<image>:<tag>. It must be the tag the
+      build job saved, its first tag (by default the commit SHA). It is not
+      used for loading: docker_load reads <image>-img.tar, which restores
+      the tag saved in it. Without tags_file, the image is pushed as this
+      tag plus additional_tags; with tags_file, as the tags in that file.
+      Supports environment variable substitution.
 
   additional_tags:
     type: string
@@ -63,13 +71,13 @@ parameters:
 
   registry_username:
     type: env_var_name
-    default: DOCKER_USERNAME
+    default: REGISTRY_USERNAME
     description: |
       Name of the environment variable containing the registry username.
 
   registry_password:
     type: env_var_name
-    default: DOCKER_PASSWORD
+    default: REGISTRY_PASSWORD
     description: |
       Name of the environment variable containing the registry password
       or access token.
@@ -88,12 +96,14 @@ parameters:
     description: |
       Path where the workspace should be attached.
 
-  archive_path:
+  archive_dir:
     type: string
     default: "~/images"
     description: |
-      Directory path where the archived image tar is located.
-      Should match the archive_path used in the build job.
+      Directory that holds the image archive (<image>-img.tar). The build
+      job persists its archive_dir as "images" under its workspace_root, so
+      with the workspace attached at attach_workspace_at the archive is in
+      <attach_workspace_at>/images; the defaults of both jobs agree.
 
   # === TAG FILE SUPPORT (tagger orb integration) ===
   tags_file:
@@ -207,19 +217,23 @@ parameters:
       Only applies when attest is true.
 
   # === WORKFLOW CUSTOMIZATION ===
-  pre_steps:
+  before_publish:
     type: steps
     default: []
     description: |
-      Steps to execute before the publish process begins. Runs after
-      workspace attachment but before registry login.
+      Steps to run after the optional workspace attach, and before registry
+      login and loading the image. This job does not check out code.
+      CircleCI's built-in pre-steps, by contrast, run before the workspace
+      attach, as the job's very first steps.
 
-  post_steps:
+  after_publish:
     type: steps
     default: []
     description: |
-      Steps to execute after the publish process completes. Runs after
-      all signing/SBOM/attestation steps but before registry logout.
+      Steps to run after the push and the optional signing, SBOM and
+      attestation steps, and before registry logout, so they can still use
+      the registry login. CircleCI's built-in post-steps, by contrast, run
+      after registry logout, as the job's very last steps.
 
 steps:
   # 1. Workspace attachment (conditional)
@@ -229,8 +243,8 @@ steps:
         - attach_workspace:
             at: << parameters.attach_workspace_at >>
 
-  # 2. Pre-steps hook (user customization)
-  - steps: << parameters.pre_steps >>
+  # 2. Before-publish hook (user customization)
+  - steps: << parameters.before_publish >>
 
   # 3. Registry login
   - docker_login:
@@ -241,7 +255,7 @@ steps:
   # 4. Load archived image
   - docker_load:
       image: << parameters.image >>
-      archive_path: << parameters.archive_path >>
+      archive_dir: << parameters.archive_dir >>
 
   # 5a. Tag and push using tagger orb (when tags_file is provided)
   - when:
@@ -344,8 +358,8 @@ steps:
                   predicate_type: ${PREDICATE_TYPE}
                   public_key: << parameters.cosign_public_key >>
 
-  # 9. Post-steps hook (user customization)
-  - steps: << parameters.post_steps >>
+  # 9. After-publish hook (user customization)
+  - steps: << parameters.after_publish >>
 
   # 10. Registry logout
   - docker_logout:

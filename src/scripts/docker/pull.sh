@@ -3,6 +3,7 @@
 # Docker Pull Script
 # Pulls one or more container images from a registry.
 # Pull failures are treated as warnings since images may exist locally.
+# The images parameter is split on whitespace (spaces, tabs or newlines).
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -20,7 +21,12 @@ else
     IMAGES="${PARAM_IMAGES}"
 fi
 
-if [ -z "${IMAGES}" ]; then
+# Split on whitespace without glob expansion. read returns non-zero at the
+# end of its input, which is expected here.
+IMAGE_ARRAY=()
+IFS=$' \t\n' read -r -d '' -a IMAGE_ARRAY <<< "${IMAGES}" || true
+
+if [ ${#IMAGE_ARRAY[@]} -eq 0 ]; then
     echo "No images specified to pull. Skipping."
     exit 0
 fi
@@ -33,7 +39,7 @@ PULL_SUCCESS=0
 PULL_FAILED=0
 
 # Pull each image
-for image in ${IMAGES}; do
+for image in "${IMAGE_ARRAY[@]}"; do
     echo "Pulling: ${image}"
     if docker pull "${image}"; then
         echo "  Success: ${image}"

@@ -16,18 +16,20 @@ parameters:
   # === EXECUTOR CONFIGURATION ===
   executor:
     type: executor
-    default: default
+    default: machine
     description: |
-      The executor to use for the build job. Defaults to a machine executor
-      with Docker pre-installed. The machine executor is recommended as it
-      provides native Docker support without requiring setup_remote_docker.
+      The executor to use for the build job. Defaults to this orb's machine
+      executor, a Linux VM with Docker pre-installed. A machine executor is
+      recommended as it provides native Docker support without requiring
+      setup_remote_docker.
 
   # === IMAGE CONFIGURATION ===
   image:
     type: string
     description: |
-      (Required) The name of the image to build. This will be used as the
-      Docker image tag. Example: "myapp" or "myorg/myapp"
+      (Required) The image name (repository) to build, without a tag. Each
+      of tags is applied as <image>:<tag>, and the archive is named after it.
+      Example: "myapp" or "myorg/myapp"
 
   tags:
     type: string
@@ -42,15 +44,19 @@ parameters:
     type: string
     default: "Dockerfile"
     description: |
-      Path to the Dockerfile relative to the context directory.
-      Defaults to "Dockerfile" in the build context root.
+      Path to the Dockerfile, passed to docker build -f. A relative path is
+      resolved against the working directory (the checkout), as Docker does,
+      not against build_context. The default is ./Dockerfile in the working
+      directory; for a Dockerfile inside another build context, include that
+      directory, e.g. build_context "app" with dockerfile "app/Dockerfile".
 
-  docker_context:
+  build_context:
     type: string
     default: "."
     description: |
-      Build context directory. This is the root directory sent to the
-      Docker daemon for the build. Defaults to the current directory.
+      Build context directory, the last argument of docker build: the root
+      directory sent to the Docker daemon for the build. An absolute path or
+      a path relative to the working directory, which is the default.
 
   target:
     type: string
@@ -63,16 +69,20 @@ parameters:
     type: string
     default: ""
     description: |
-      Additional build arguments to pass to docker build, in the format
-      "ARG1=value1 ARG2=value2". These are passed with --build-arg flags.
+      Additional build arguments as KEY=VALUE pairs separated by whitespace
+      (spaces or newlines). Each pair is passed as its own --build-arg, so a
+      value cannot contain whitespace; pass such a value through extra_args.
+      Example: "ARG1=value1 ARG2=value2"
       Note: OCI label build args are automatically injected (see oci_labels).
 
-  extra_docker_args:
+  extra_args:
     type: string
     default: ""
     description: |
-      Additional flags to pass directly to the docker build command.
-      Example: "--no-cache --squash"
+      Additional arguments appended to the docker build (or docker buildx
+      build) command, before the build context. Split like shell words, so
+      quotes keep a value with spaces together.
+      Example: "--no-cache --progress=plain"
 
   no_output_timeout:
     type: string
@@ -90,47 +100,52 @@ parameters:
       When enabled, the following build args are passed:
         - OCI_CREATED: Build timestamp (RFC 3339)
         - OCI_REVISION: Git commit SHA (CIRCLE_SHA1)
-        - OCI_VERSION: Version from parameter, CIRCLE_TAG, or "dev"
-        - OCI_SOURCE: Source repository URL
+        - OCI_VERSION: image_version, else CIRCLE_TAG, else "dev"
+        - OCI_SOURCE: Source repository URL (CIRCLE_REPOSITORY_URL)
       Your Dockerfile should use ARG and LABEL to consume these values.
 
-  version:
+  image_version:
     type: string
     default: ""
     description: |
-      Version string to pass as OCI_VERSION build arg. If empty, defaults
-      to CIRCLE_TAG if set, otherwise "dev". Used for the
-      org.opencontainers.image.version label.
+      Value of the OCI_VERSION build argument, for a Dockerfile to use in the
+      org.opencontainers.image.version label. It only sets that build
+      argument: it does not tag the image, and it is ignored when oci_labels
+      is false. If empty, CIRCLE_TAG is used if set, otherwise "dev".
 
   # === BASE IMAGE HANDLING ===
   pull_base_images:
     type: string
     default: ""
     description: |
-      Space-separated list of base images to pull before building.
-      This is necessary when base images exist only locally (e.g., built
-      with apko/melange) because Docker's --pull flag fails for local-only
-      images. Example: "ghcr.io/myorg/base:latest myregistry/runtime:1.0"
+      Base images to pull before building, separated by whitespace (spaces
+      or newlines), with the docker_pull command. A failed pull is only a
+      warning. Use this instead of pull when some base images exist only
+      locally (e.g., built with apko/melange), because Docker's --pull flag
+      fails for local-only images; list only the registry images here.
+      Example: "ghcr.io/myorg/base:latest myregistry/runtime:1.0"
 
-  use_pull_flag:
+  pull:
     type: boolean
     default: false
     description: |
-      Add the --pull flag to docker build to always pull the latest base
-      images from the registry. Note: This will fail if any base image
-      only exists locally. Use pull_base_images for mixed scenarios.
+      Pass --pull to docker build, so that it always pulls the base images
+      from the registry instead of using local copies. Note: This fails if
+      any base image only exists locally. Use pull_base_images for mixed
+      scenarios.
 
   # === TARGET PLATFORM ===
-  platforms:
+  platform:
     type: string
     default: ""
     description: |
-      Target platform for a cross-platform build with Docker buildx.
-      Example: "linux/arm64"
-      The image is loaded into the local Docker image store with --load,
-      which with Docker's classic image store holds one platform, so give
-      a single platform. Multi-platform images are not supported (see the
-      README).
+      A single target platform for a cross-platform build with Docker
+      buildx. Example: "linux/arm64"
+      The build runs docker buildx build --platform <platform> --load, which
+      loads the image into the local Docker image store. With Docker's
+      classic image store --load holds one platform, so a list such as
+      "linux/amd64,linux/arm64" is not supported; neither are multi-platform
+      images (see the README).
       Leave empty to build for the runner's platform with docker build.
 
   buildx_builder:
@@ -138,7 +153,7 @@ parameters:
     default: ""
     description: |
       Name of the buildx builder instance to use. If empty, the default
-      builder is used. Only applies when platforms is specified.
+      builder is used. Only applies when platform is specified.
 
   # === REGISTRY AUTHENTICATION ===
   registry:
@@ -151,14 +166,14 @@ parameters:
 
   registry_username:
     type: env_var_name
-    default: DOCKER_USERNAME
+    default: REGISTRY_USERNAME
     description: |
       Name of the environment variable containing the registry username.
       Only used when registry is specified.
 
   registry_password:
     type: env_var_name
-    default: DOCKER_PASSWORD
+    default: REGISTRY_PASSWORD
     description: |
       Name of the environment variable containing the registry password
       or access token. Only used when registry is specified.
@@ -168,29 +183,36 @@ parameters:
     type: boolean
     default: true
     description: |
-      Save the built image to a tar archive for workspace persistence.
-      The archive is saved to ~/images/<image>-img.tar
+      Save the built image (<image>:<first tag>) with docker save to the tar
+      archive <archive_dir>/<image>-img.tar, with each / in image replaced
+      by -, for workspace persistence.
 
-  archive_path:
+  archive_dir:
     type: string
     default: "~/images"
     description: |
-      Directory path where the image archive will be saved.
-      Defaults to ~/images for CircleCI workspace compatibility.
+      Directory where the image archive is saved. An absolute path, a path
+      starting with ~, or a path relative to the working directory.
+      When persist_to_workspace is true, it must be <workspace_root>/images
+      (the default with the default workspace_root), or the job fails.
 
   persist_to_workspace:
     type: boolean
     default: true
     description: |
-      Persist the archived image to the CircleCI workspace for use in
-      subsequent jobs. Only applies when archive is true.
+      Persist the archive to the CircleCI workspace for use in subsequent
+      jobs. Only applies when archive is true. This persists the directory
+      "images" under workspace_root, so archive_dir must be
+      <workspace_root>/images; the job fails otherwise.
 
   workspace_root:
     type: string
     default: "~"
     description: |
-      Root directory for workspace persistence. The archive_path should
-      be relative to this root.
+      Root directory of the persisted workspace (persist_to_workspace's
+      root). The workspace receives the "images" directory under this root,
+      which must be archive_dir. A downstream job that attaches the
+      workspace at <path> finds the archive in <path>/images.
 
   # === INSPECTION & DEBUGGING ===
   inspect:
@@ -214,19 +236,24 @@ parameters:
     description: |
       Path where the workspace should be attached.
 
-  pre_steps:
+  before_build:
     type: steps
     default: []
     description: |
-      Steps to execute before the build process begins. Runs after
-      checkout and workspace attachment, but before registry login.
+      Steps to run after checkout and the optional workspace attach, and
+      before registry login, base image pulls and the build. CircleCI's
+      built-in pre-steps, by contrast, run before checkout, as the job's
+      very first steps.
 
-  post_steps:
+  after_build:
     type: steps
     default: []
     description: |
-      Steps to execute after the build process completes. Runs after
-      archive and persist, but before registry logout.
+      Steps to run after the build, inspect, archive and workspace persist
+      steps, and before registry logout, so they can still use the registry
+      login. Files they create are not in the workspace this job persists.
+      CircleCI's built-in post-steps, by contrast, run after registry
+      logout, as the job's very last steps.
 
 steps:
   # 1. Source code checkout
@@ -239,8 +266,8 @@ steps:
         - attach_workspace:
             at: << parameters.attach_workspace_at >>
 
-  # 3. Pre-steps hook (user customization)
-  - steps: << parameters.pre_steps >>
+  # 3. Before-build hook (user customization)
+  - steps: << parameters.before_build >>
 
   # 4. Registry login (conditional - for private base images)
   - when:
@@ -263,14 +290,14 @@ steps:
       image: << parameters.image >>
       tags: << parameters.tags >>
       dockerfile: << parameters.dockerfile >>
-      context: << parameters.docker_context >>
+      build_context: << parameters.build_context >>
       target: << parameters.target >>
       build_args: << parameters.build_args >>
-      extra_docker_args: << parameters.extra_docker_args >>
+      extra_args: << parameters.extra_args >>
       oci_labels: << parameters.oci_labels >>
-      version: << parameters.version >>
-      use_pull_flag: << parameters.use_pull_flag >>
-      platforms: << parameters.platforms >>
+      image_version: << parameters.image_version >>
+      pull: << parameters.pull >>
+      platform: << parameters.platform >>
       buildx_builder: << parameters.buildx_builder >>
       no_output_timeout: << parameters.no_output_timeout >>
 
@@ -285,14 +312,14 @@ steps:
   - when:
       condition: << parameters.archive >>
       steps:
-        - docker_archive:
+        - docker_save:
             image: << parameters.image >>
-            output_path: << parameters.archive_path >>
+            archive_dir: << parameters.archive_dir >>
             persist_to_workspace: << parameters.persist_to_workspace >>
             workspace_root: << parameters.workspace_root >>
 
-  # 9. Post-steps hook (user customization)
-  - steps: << parameters.post_steps >>
+  # 9. After-build hook (user customization)
+  - steps: << parameters.after_build >>
 
   # 10. Registry logout (conditional)
   - when:

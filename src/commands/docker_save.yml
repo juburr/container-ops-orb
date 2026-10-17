@@ -1,0 +1,67 @@
+description: |
+  Save a Docker image to a tar file using docker save, the counterpart of
+  docker_load. This is useful for persisting images to the CircleCI workspace
+  so they can be used by downstream jobs (e.g., publish, scan).
+
+parameters:
+  image:
+    type: string
+    description: |
+      The image name (repository) to save, without a tag. The archive is
+      named after it: <image>-img.tar, with each / replaced by -.
+      Example: "myapp" or "myorg/myapp"
+
+  tag:
+    type: string
+    default: ""
+    description: |
+      The tag of the image to save. If empty, uses the primary tag from the
+      BUILT_IMAGE_TAG environment variable set by docker_build, or "latest"
+      if that is not set.
+
+  archive_dir:
+    type: string
+    default: "~/images"
+    description: |
+      Directory where the tar archive (<image>-img.tar) is saved. It is
+      created if missing. An absolute path, a path starting with ~, or a path
+      relative to the working directory.
+      When persist_to_workspace is true, it must be <workspace_root>/images
+      (the default with the default workspace_root), or the step fails.
+
+  persist_to_workspace:
+    type: boolean
+    default: true
+    description: |
+      Persist the archive to the CircleCI workspace for use in subsequent
+      jobs. This persists the directory "images" under workspace_root, so
+      archive_dir must be <workspace_root>/images; the step fails otherwise.
+      To save elsewhere, set this to false and add your own
+      persist_to_workspace step.
+
+  workspace_root:
+    type: string
+    default: "~"
+    description: |
+      Root directory of the persisted workspace (persist_to_workspace's root).
+      The workspace receives the "images" directory under this root, which
+      must be archive_dir. A downstream job that attaches the workspace at
+      <path> finds the archive in <path>/images.
+
+steps:
+  - run:
+      name: Docker Save
+      environment:
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_TAG: << parameters.tag >>
+        PARAM_ARCHIVE_DIR: << parameters.archive_dir >>
+        PARAM_PERSIST_TO_WORKSPACE: << parameters.persist_to_workspace >>
+        PARAM_WORKSPACE_ROOT: << parameters.workspace_root >>
+      command: << include(scripts/docker/save.sh) >>
+  - when:
+      condition: << parameters.persist_to_workspace >>
+      steps:
+        - persist_to_workspace:
+            root: << parameters.workspace_root >>
+            paths:
+              - images

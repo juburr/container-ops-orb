@@ -1,26 +1,30 @@
 description: |
   Load a Docker image from a tar archive using docker load.
-  This is useful for loading images that were archived in a previous job
-  and persisted to the CircleCI workspace.
+  This is useful for loading images that were saved with docker_save in a
+  previous job and persisted to the CircleCI workspace.
 
 parameters:
   image:
     type: string
     description: |
-      The image name that was archived. This is used to construct the
-      archive filename. Example: "myapp" or "myorg/myapp"
+      The image name (repository) that was saved, without a tag. It selects
+      the archive file, <image>-img.tar with each / replaced by -; the
+      image is loaded with whatever tags the archive holds.
+      Example: "myapp" or "myorg/myapp"
 
-  archive_path:
+  archive_dir:
     type: string
     default: "~/images"
     description: |
-      Directory where the tar archive is located.
-      Defaults to ~/images for CircleCI workspace compatibility.
+      Directory that holds the tar archive (<image>-img.tar). An absolute
+      path, a path starting with ~, or a path relative to the working
+      directory. The default matches docker_save's default with the
+      workspace attached at ~.
 
 steps:
   - run:
       name: Docker Load
       environment:
         PARAM_IMAGE: << parameters.image >>
-        PARAM_ARCHIVE_PATH: << parameters.archive_path >>
+        PARAM_ARCHIVE_DIR: << parameters.archive_dir >>
       command: << include(scripts/docker/load.sh) >>

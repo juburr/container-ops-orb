@@ -15,6 +15,35 @@ The goal of this orb is to share jobs that allow users to easily perform the fol
 - Scan the container images for vulnerabilities using `grype`.
 - Publish the signature and attach SBOMs and/or scan results as attestations.
 
+## Upgrading
+The next release renames a command, the executor and several parameters. Update your config as follows:
+
+| Where | Old | New |
+|---|---|---|
+| command | `docker_archive` | `docker_save` |
+| executor | `default` | `machine` |
+| `docker_save` | `output_path` | `archive_dir` |
+| `docker_load` | `archive_path` | `archive_dir` |
+| `build`, `publish`, `scan` jobs | `archive_path` | `archive_dir` |
+| `docker_build` | `context` | `build_context` |
+| `build` job | `docker_context` | `build_context` |
+| `docker_build`, `build` job | `extra_docker_args` | `extra_args` |
+| `docker_build`, `build` job | `version` | `image_version` |
+| `docker_build`, `build` job | `use_pull_flag` | `pull` |
+| `docker_build`, `build` job | `platforms` | `platform` |
+| `scan` job | `scan_source` | `image_source` |
+| `build` job | `pre_steps` / `post_steps` | `before_build` / `after_build` |
+| `publish` job | `pre_steps` / `post_steps` | `before_publish` / `after_publish` |
+| `scan` job | `pre_steps` / `post_steps` | `before_scan` / `after_scan` |
+| `docker_login` `username` / `password`, jobs' `registry_username` / `registry_password` | default `DOCKER_USERNAME` / `DOCKER_PASSWORD` | default `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` |
+
+The `before_*` and `after_*` steps run at the same points as the old `pre_steps` and `post_steps`; each job's parameter descriptions say exactly where. If your context defines `DOCKER_USERNAME` and `DOCKER_PASSWORD`, rename those variables or pass their names to `username` / `password` or `registry_username` / `registry_password`.
+
+Behavior changes:
+- `build_args` and `docker_pull`'s `images` (the `build` job's `pull_base_images`) are split on any whitespace, spaces or newlines. Before, a space-separated list such as `A=1 B=2` reached Docker as a single value.
+- `docker_save` (and the `build` job) fail when `persist_to_workspace` is true and `archive_dir` is not `<workspace_root>/images`. The workspace step can persist only that directory. Before, it persisted `<workspace_root>/images` anyway, so the archive was missing from the workspace, or the step failed when that directory did not exist.
+- A relative `dockerfile` is checked relative to the working directory, where `docker build -f` looks for it, not relative to the build context. Before, the check also accepted `<build context>/<dockerfile>`, but Docker still read the path relative to the working directory, so the build failed or used a different Dockerfile.
+
 ## How the Publish Job Works
 The `publish` job is **tag-oriented** and **single-platform**. Check that this fits your release process before you rely on it.
 
@@ -28,7 +57,7 @@ The `publish` job is **tag-oriented** and **single-platform**. Check that this f
 ### Single-platform
 `publish` is designed and tested for single-platform images:
 
-- `build` runs `docker build`. When `platforms` is set, it runs `docker buildx build --load` instead. With Docker's classic image store, `--load` handles only one platform, so give `platforms` a single target such as `linux/arm64`, not a list.
+- `build` runs `docker build`. When `platform` is set, it runs `docker buildx build --platform <platform> --load` instead. With Docker's classic image store, `--load` handles only one platform, so `platform` takes a single target such as `linux/arm64`, not a list.
 - `docker save` and `docker load` move that image between jobs, and `docker push` publishes it under each tag.
 
 Multi-platform images (an OCI image index covering several architectures) are not supported. To publish one today, build and push it in your own job, for example with `docker buildx build --platform linux/amd64,linux/arm64 --tag <registry>/<namespace>/<image>:<tag> --push .`. Then sign and attest it with the `cosign` orb directly. Syft scans only one platform of an image index, so generate one SBOM per platform with the `syft` orb, for example by passing each platform's manifest digest (`<registry>/<namespace>/<image>@sha256:...`) as the source.

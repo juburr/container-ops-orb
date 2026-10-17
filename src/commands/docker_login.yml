@@ -11,15 +11,17 @@ parameters:
 
   username:
     type: env_var_name
-    default: DOCKER_USERNAME
+    default: REGISTRY_USERNAME
     description: |
-      Name of the environment variable containing the registry username.
+      Name of the environment variable containing the registry username
+      (the variable's name, not the username itself).
 
   password:
     type: env_var_name
-    default: DOCKER_PASSWORD
+    default: REGISTRY_PASSWORD
     description: |
-      Name of the environment variable containing the registry password or access token.
+      Name of the environment variable containing the registry password or
+      access token (the variable's name, not the secret itself).
 
 steps:
   - run:

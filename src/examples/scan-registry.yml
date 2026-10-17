@@ -1,6 +1,8 @@
 description: |
   Scan a published container image from a registry.
   Useful for periodic vulnerability scans of production images.
+  The registry-credentials context provides REGISTRY_USERNAME and
+  REGISTRY_PASSWORD.
 
 usage:
   version: "2.1"
@@ -14,10 +16,10 @@ usage:
         - container-ops-orb/scan:
             image: myapp
             tag: "latest"
-            scan_source: registry
+            image_source: registry
             registry: ghcr.io
             registry_namespace: myorg
             output_format: sarif
             fail_on: critical
             context:
-              - docker-credentials
+              - registry-credentials

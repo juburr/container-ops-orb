@@ -14,8 +14,9 @@ parameters:
     type: string
     default: ""
     description: |
-      The tag of the image to inspect. If empty, uses the primary tag
-      from the BUILT_IMAGE_TAG environment variable set by docker-build.
+      The tag of the image to inspect. If empty, uses the primary tag from
+      the BUILT_IMAGE_TAG environment variable set by docker_build, or
+      "latest" if that is not set.
 
 steps:
   - run:
