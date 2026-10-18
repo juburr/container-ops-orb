@@ -179,17 +179,17 @@ else
 fi
 
 # extra_args is split like shell words, across lines too, but nothing in it
-# is expanded or run: the $(...) and backticks reach docker as text.
+# is expanded or run: the quoted $(...) and backticks reach docker as text.
 build_env
 PARAM_EXTRA_ARGS=$(cat << 'END'
---label "cmd=$(touch pwned)" --label tick=`touch pwned`
+--label "cmd=$(touch pwned)" --label 'tick=`touch pwned`'
 --label a\ b\\c --label 'C:\dir'
 END
 )
 build_in_work 'touch Dockerfile'
 # shellcheck disable=SC2016 # the $(...) and backticks are expected verbatim
 if [[ "${STATUS}" -eq 0 ]] && [[ ! -e "${TMP}/work/pwned" ]] \
-    && docker_args_contain -t app:t2 --label 'cmd=$(touch pwned)' --label 'tick=`touch' 'pwned`' \
+    && docker_args_contain -t app:t2 --label 'cmd=$(touch pwned)' --label 'tick=`touch pwned`' \
         --label 'a b\c' --label 'C:\dir' . --end--; then
     pass "extra_args are split like shell words; \$(...), backticks and backslashes reach docker as text"
 else
@@ -221,6 +221,23 @@ if [[ "${STATUS}" -eq 0 ]] \
 else
     fail "extra_args comments (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
 fi
+
+# Outside quotes, a $(...) or backtick fails rather than reaching docker as
+# text: whoever wrote it meant it to run, as eval of the old BUILD_CMD+=(...)
+# did.
+# shellcheck disable=SC2016 # the $(...) and backticks are meant literally
+for value in '--label commit=$(git rev-parse HEAD)' '--label n=$((1 + 2))' '--label tick=`date`'; do
+    build_env
+    PARAM_EXTRA_ARGS=${value}
+    build_in_work 'touch Dockerfile'
+    label=$(printf '%q' "${value}")
+    if [[ "${STATUS}" -ne 0 ]] && [[ ! -s "${DOCKER_LOG}" ]] \
+        && [[ "${OUTPUT}" == *"ERROR: extra_args could not be split into arguments"*"outside quotes"* ]]; then
+        pass "extra_args with a \$(...) or backtick outside quotes (${label}) fails before docker runs"
+    else
+        fail "extra_args with a \$(...) or backtick outside quotes (${label}) should fail (status ${STATUS}): ${OUTPUT}"
+    fi
+done
 
 # Bash's $'...' and $"..." quoting is not implemented, so it fails rather
 # than reaching docker with a literal $. A $ in quotes, or before anything

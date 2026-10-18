@@ -61,7 +61,9 @@ parameters:
       build) command, before the build context. Split like shell words, so
       quotes keep a value with spaces together. Environment variables such
       as ${CIRCLE_SHA1} are substituted, but nothing else is expanded or
-      executed: $(...), backticks, ~ and wildcards reach docker as written.
+      executed: ~ and wildcards reach docker as written, and so do $(...)
+      and backticks in quotes. Outside quotes, $(...) and backticks fail
+      the step.
       Example: "--no-cache --progress=plain"
 
   oci_labels:

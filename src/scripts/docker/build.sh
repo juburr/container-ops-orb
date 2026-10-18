@@ -173,8 +173,9 @@ done
 # A # that starts a word starts a comment, which runs to the end of the line.
 # Spaces, tabs and newlines separate words, and '' is an empty word. Returns 1
 # if a quote is never closed, 2 if the input ends in a backslash outside
-# quotes (which escapes nothing), and 3 for bash's $'...' or $"..." quoting,
-# which it does not implement.
+# quotes (which escapes nothing), 3 for bash's $'...' or $"..." quoting, which
+# it does not implement, and 4 for a $(...) or backtick outside quotes, which
+# it would not run.
 split_shell_words() {
     local input=$1 word="" in_word=false quote="" char next i
     SHELL_WORDS=()
@@ -223,12 +224,14 @@ split_shell_words() {
                     fi
                     ;;
                 '$')
-                    if [[ "${input:i+1:1}" == "'" || "${input:i+1:1}" == '"' ]]; then
-                        return 3
-                    fi
+                    case "${input:i+1:1}" in
+                        "'" | '"') return 3 ;;
+                        "(") return 4 ;;
+                    esac
                     word+=${char}
                     in_word=true
                     ;;
+                '`') return 4 ;;
                 *) word+=${char}; in_word=true ;;
             esac
         fi
@@ -257,9 +260,14 @@ case "${split_status}" in
         echo "  A literal \\ at the end needs another \\ before it." >&2
         exit 1
         ;;
-    *)
+    3)
         echo "ERROR: extra_args could not be split into arguments: \$'...' and \$\"...\" quoting is not supported." >&2
         echo "  Use '...' or \"...\" instead." >&2
+        exit 1
+        ;;
+    *)
+        echo "ERROR: extra_args could not be split into arguments: it has a \$(...) or backtick outside quotes." >&2
+        echo "  extra_args is not run as shell code, so the command would not run. Quote it to pass it to docker as text." >&2
         exit 1
         ;;
 esac
