@@ -46,6 +46,18 @@ Behavior changes:
 - `extra_args` is no longer run through the shell's `eval`. It is still split like shell words, with quotes, backslashes and `#` comments, and environment variables are still substituted, but nothing else is expanded or run, so a variable's value can no longer run a command. `~` and wildcards reach Docker as written, and so do `$(...)`, backticks and the shell operators `| & ; < > ( )` inside quotes. Outside quotes, a `$(...)`, backtick or operator (a redirection, a pipe, a `<(...)`) fails the step before the build, since it would not run; so do an unmatched quote, a backslash at the very end, and bash's `$'...'` or `$"..."` quoting.
 - Error and warning messages start with `ERROR:` or `WARN:` and go to stderr. Before, they went to stdout, a missing `docker` printed `FATAL:`, and a failed pull in `docker_pull` printed `WARNING:`.
 
+## Executor
+The `build`, `publish` and `scan` jobs take an `executor` parameter. It defaults to this orb's `machine` executor, a Linux VM with Docker pre-installed (`ubuntu-2404:current` on the `medium` resource class). To change the image or resource class, pass them to that executor:
+
+```yaml
+- container-ops-orb/build:
+    executor:
+      name: container-ops-orb/machine
+      resource_class: large
+```
+
+You can pass any other executor that has Docker available. The jobs don't run `setup_remote_docker` themselves, which is why a machine executor is the default.
+
 ## How the Publish Job Works
 The `publish` job is **tag-oriented** and **single-platform**. Check that this fits your release process before you rely on it.
 

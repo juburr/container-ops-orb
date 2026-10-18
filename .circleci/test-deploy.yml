@@ -1003,6 +1003,10 @@ workflows:
           build_context: .
           archive: false
           inspect: true
+          # Not the executor's default image, to prove its parameters apply.
+          executor:
+            name: container-ops-orb/machine
+            image: ubuntu-2204:current
           before_build:
             - run:
                 name: Create Dockerfile in custom location
@@ -1013,6 +1017,9 @@ workflows:
                   LABEL org.opencontainers.image.title="Custom Path Test"
                   CMD ["echo", "Custom path test passed"]
                   EOF
+            - run:
+                name: Assert the executor's image parameter applied
+                command: grep -qx 'VERSION_ID="22.04"' /etc/os-release
           filters: *filters
 
       # Test the scan job directly, installing Grype through verify_checksums
