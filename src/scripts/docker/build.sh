@@ -170,6 +170,7 @@ done
 # nothing. Single quotes keep everything literal. Inside double quotes a
 # backslash escapes only ", \, $, ` and newline, as in bash. Outside quotes a
 # backslash escapes the next character, and a backslash-newline joins lines.
+# A # that starts a word starts a comment, which runs to the end of the line.
 # Spaces, tabs and newlines separate words, and '' is an empty word. Returns 1
 # if a quote is never closed or the input ends in a backslash outside quotes,
 # which escapes nothing.
@@ -203,6 +204,15 @@ split_shell_words() {
                     fi
                     ;;
                 "'" | '"') quote=${char}; in_word=true ;;
+                "#")
+                    if [[ "${in_word}" == true ]]; then
+                        word+=${char}
+                    else
+                        while ((i + 1 < ${#input})) && [[ "${input:i+1:1}" != $'\n' ]]; do
+                            i=$((i + 1))
+                        done
+                    fi
+                    ;;
                 "\\")
                     ((i + 1 < ${#input})) || return 1
                     i=$((i + 1))

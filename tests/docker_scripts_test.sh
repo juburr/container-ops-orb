@@ -209,6 +209,19 @@ else
     fail "extra_args shell quoting (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}")"
 fi
 
+# A # that starts a word starts a comment, which runs to the end of its line
+# (a backslash there does not continue it), as eval of the old
+# BUILD_CMD+=(...) read it. A # inside a word or in quotes is text.
+build_env
+PARAM_EXTRA_ARGS=$'--no-cache # not cached \\\n--pull\n--label a#b --label "#q" --label \'\'#x # last'
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -eq 0 ]] \
+    && docker_args_contain -t app:t2 --no-cache --pull --label 'a#b' --label '#q' --label '#x' . --end--; then
+    pass "extra_args drop # comments but keep a # inside a word or in quotes"
+else
+    fail "extra_args comments (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
+fi
+
 build_env
 PARAM_EXTRA_ARGS="--no-cache --label 'a=b"
 build_in_work 'touch Dockerfile'
