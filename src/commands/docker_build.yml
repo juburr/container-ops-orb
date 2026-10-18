@@ -6,7 +6,8 @@ parameters:
   image:
     type: string
     description: |
-      The name of the image to build. This will be used as the Docker image name.
+      The image name (repository) to build, without a tag. Each of tags is
+      applied as <image>:<tag>.
       Example: "myapp" or "myorg/myapp"
 
   tags:
@@ -21,15 +22,19 @@ parameters:
     type: string
     default: "Dockerfile"
     description: |
-      Path to the Dockerfile relative to the context directory.
-      Defaults to "Dockerfile" in the build context root.
+      Path to the Dockerfile, passed to docker build -f. A relative path is
+      resolved against the working directory, as Docker does, not against
+      build_context. The default is ./Dockerfile in the working directory;
+      for a Dockerfile inside another build context, include that directory,
+      e.g. build_context "app" with dockerfile "app/Dockerfile".
 
-  context:
+  build_context:
     type: string
     default: "."
     description: |
-      Build context directory. This is the root directory sent to the
-      Docker daemon for the build. Defaults to the current directory.
+      Build context directory, the last argument of docker build: the root
+      directory sent to the Docker daemon for the build. An absolute path or
+      a path relative to the working directory, which is the default.
 
   target:
     type: string
@@ -42,16 +47,20 @@ parameters:
     type: string
     default: ""
     description: |
-      Additional build arguments to pass to docker build, in the format
-      "ARG1=value1 ARG2=value2". These are passed with --build-arg flags.
+      Additional build arguments as KEY=VALUE pairs separated by whitespace
+      (spaces or newlines). Each pair is passed as its own --build-arg, so a
+      value cannot contain whitespace; pass such a value through extra_args.
+      Example: "ARG1=value1 ARG2=value2"
       Note: OCI label build args are automatically injected when oci_labels is true.
 
-  extra_docker_args:
+  extra_args:
     type: string
     default: ""
     description: |
-      Additional flags to pass directly to the docker build command.
-      Example: "--no-cache --squash"
+      Additional arguments appended to the docker build (or docker buildx
+      build) command, before the build context. Split like shell words, so
+      quotes keep a value with spaces together.
+      Example: "--no-cache --progress=plain"
 
   oci_labels:
     type: boolean
@@ -61,36 +70,39 @@ parameters:
       When enabled, the following build args are passed:
         - OCI_CREATED: Build timestamp (RFC 3339)
         - OCI_REVISION: Git commit SHA (CIRCLE_SHA1)
-        - OCI_VERSION: Version from parameter, CIRCLE_TAG, or "dev"
+        - OCI_VERSION: image_version, else CIRCLE_TAG, else "dev"
         - OCI_SOURCE: Source repository URL (CIRCLE_REPOSITORY_URL)
       Your Dockerfile should use ARG and LABEL to consume these values.
 
-  version:
+  image_version:
     type: string
     default: ""
     description: |
-      Version string to pass as OCI_VERSION build arg. If empty, defaults
-      to CIRCLE_TAG if set, otherwise "dev". Used for the
-      org.opencontainers.image.version label.
+      Value of the OCI_VERSION build argument, for a Dockerfile to use in the
+      org.opencontainers.image.version label. It only sets that build
+      argument: it does not tag the image, and it is ignored when oci_labels
+      is false. If empty, CIRCLE_TAG is used if set, otherwise "dev".
 
-  use_pull_flag:
+  pull:
     type: boolean
     default: false
     description: |
-      Add the --pull flag to docker build to always pull the latest base
-      images from the registry. Note: This will fail if any base image
-      only exists locally. Use docker-pull command for mixed scenarios.
+      Pass --pull to docker build, so that it always pulls the base images
+      from the registry instead of using local copies. Note: This fails if
+      any base image only exists locally. Use the docker_pull command for
+      mixed scenarios.
 
-  platforms:
+  platform:
     type: string
     default: ""
     description: |
-      Target platform for a cross-platform build with Docker buildx.
-      Example: "linux/arm64"
-      The image is loaded into the local Docker image store with --load,
-      which with Docker's classic image store holds one platform, so give
-      a single platform. Multi-platform images are not supported (see the
-      README).
+      A single target platform for a cross-platform build with Docker
+      buildx. Example: "linux/arm64"
+      The build runs docker buildx build --platform <platform> --load, which
+      loads the image into the local Docker image store. With Docker's
+      classic image store --load holds one platform, so a list such as
+      "linux/amd64,linux/arm64" is not supported; neither are multi-platform
+      images (see the README).
       Leave empty to build for the runner's platform with docker build.
 
   buildx_builder:
@@ -98,7 +110,7 @@ parameters:
     default: ""
     description: |
       Name of the buildx builder instance to use. If empty, the default
-      builder is used. Only applies when platforms is specified.
+      builder is used. Only applies when platform is specified.
 
   no_output_timeout:
     type: string
@@ -115,13 +127,13 @@ steps:
         PARAM_IMAGE: << parameters.image >>
         PARAM_TAGS: << parameters.tags >>
         PARAM_DOCKERFILE: << parameters.dockerfile >>
-        PARAM_CONTEXT: << parameters.context >>
+        PARAM_BUILD_CONTEXT: << parameters.build_context >>
         PARAM_TARGET: << parameters.target >>
         PARAM_BUILD_ARGS: << parameters.build_args >>
-        PARAM_EXTRA_DOCKER_ARGS: << parameters.extra_docker_args >>
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
         PARAM_OCI_LABELS: << parameters.oci_labels >>
-        PARAM_VERSION: << parameters.version >>
-        PARAM_USE_PULL_FLAG: << parameters.use_pull_flag >>
-        PARAM_PLATFORMS: << parameters.platforms >>
+        PARAM_IMAGE_VERSION: << parameters.image_version >>
+        PARAM_PULL: << parameters.pull >>
+        PARAM_PLATFORM: << parameters.platform >>
         PARAM_BUILDX_BUILDER: << parameters.buildx_builder >>
       command: << include(scripts/docker/build.sh) >>

@@ -1,13 +1,15 @@
 description: |
   Scan a container image with a security gate that fails the pipeline
   if high or critical vulnerabilities are found. Uses SARIF output
-  for integration with security dashboards.
+  for integration with security dashboards. The registry-credentials
+  context provides REGISTRY_USERNAME and REGISTRY_PASSWORD; signing-keys
+  provides the Cosign keys.
 
 usage:
   version: "2.1"
 
   orbs:
-    container-ops-orb: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.3.0
 
   workflows:
     secure-build:
@@ -22,7 +24,7 @@ usage:
             requires:
               - container-ops-orb/build
             image: myapp
-            scan_source: local
+            image_source: local
             output_format: sarif
             fail_on: high
             log_results: true
@@ -37,5 +39,5 @@ usage:
             sign: true
             sbom: true
             context:
-              - docker-credentials
+              - registry-credentials
               - signing-keys

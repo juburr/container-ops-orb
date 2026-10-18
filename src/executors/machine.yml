@@ -1,0 +1,11 @@
+description: |
+  Linux machine executor with Docker pre-installed: the ubuntu-2404:current
+  machine image (Ubuntu 24.04 with a current Docker Engine) on the medium
+  resource class. Docker runs natively on the VM, so jobs need no
+  setup_remote_docker. This is the default executor of the build, publish
+  and scan jobs.
+
+machine:
+  image: ubuntu-2404:current
+
+resource_class: medium

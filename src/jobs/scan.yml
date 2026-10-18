@@ -15,10 +15,11 @@ parameters:
   # === EXECUTOR CONFIGURATION ===
   executor:
     type: executor
-    default: default
+    default: machine
     description: |
-      The executor to use for the scan job. Defaults to a machine executor
-      with Docker pre-installed for native Docker support.
+      The executor to use for the scan job. Defaults to this orb's machine
+      executor, a Linux VM with Docker pre-installed for native Docker
+      support.
 
   # === IMAGE CONFIGURATION ===
   image:
@@ -27,40 +28,46 @@ parameters:
       (Required) The image to scan. This can be:
       - A local image name (e.g., "myapp" when loading from archive)
       - A full registry path (e.g., "ghcr.io/myorg/myapp:v1.0.0")
-      The interpretation depends on the scan_source parameter.
+      The interpretation depends on the image_source parameter.
 
   tag:
     type: string
     default: "${CIRCLE_SHA1}"
     description: |
-      Tag of the image to scan. Used when loading from archive or
-      constructing the full image reference.
+      Tag of the image to scan. With image_source local, the job scans
+      <image>:<tag> after loading the archive, so it must be the tag the
+      build job saved (its first tag). With image_source registry and
+      registry set, it completes <registry>[/<registry_namespace>]/<image>:<tag>.
+      Not used with image_source archive, or with registry when registry is
+      empty (image is then the full reference).
 
-  # === SCAN SOURCE CONFIGURATION ===
-  scan_source:
+  # === IMAGE SOURCE CONFIGURATION ===
+  image_source:
     type: enum
     enum: ["local", "registry", "archive"]
     default: "local"
     description: |
-      How to access the image for scanning:
+      Where the image to scan comes from:
       - local: Load image from archived tar file, then scan locally
       - registry: Scan image directly from container registry (no pull needed)
       - archive: Scan the tar archive file directly using docker-archive: scheme
 
-  archive_path:
+  archive_dir:
     type: string
     default: "~/images"
     description: |
-      Directory where the archived image tar is located.
-      Used when scan_source is "local" or "archive".
+      Directory that holds the image archive (<image>-img.tar) saved by the
+      build job. Used when image_source is "local" or "archive". With the
+      default attach_workspace_at (~), the build job's defaults put it in
+      ~/images.
 
-  # === REGISTRY CONFIGURATION (for registry scan source) ===
+  # === REGISTRY CONFIGURATION (for the registry image source) ===
   registry:
     type: string
     default: ""
     description: |
       Container registry hostname for registry scans.
-      When set with scan_source=registry, constructs full image path.
+      When set with image_source=registry, constructs full image path.
       Examples: "ghcr.io", "docker.io", "gcr.io"
 
   registry_namespace:
@@ -72,14 +79,14 @@ parameters:
 
   registry_username:
     type: env_var_name
-    default: DOCKER_USERNAME
+    default: REGISTRY_USERNAME
     description: |
       Name of the environment variable containing the registry username.
       Only used when registry authentication is needed.
 
   registry_password:
     type: env_var_name
-    default: DOCKER_PASSWORD
+    default: REGISTRY_PASSWORD
     description: |
       Name of the environment variable containing the registry password.
       Only used when registry authentication is needed.
@@ -168,17 +175,27 @@ parameters:
       Path where the workspace should be attached.
 
   # === WORKFLOW CUSTOMIZATION ===
-  pre_steps:
+  before_scan:
     type: steps
     default: []
     description: |
-      Steps to execute before the scan process begins.
+      Steps to run after the optional workspace attach, and before creating
+      output_dir, registry login, loading the image and installing Grype.
+      This job does not check out code. CircleCI's built-in pre-steps, by
+      contrast, run before the workspace attach, as the job's very first
+      steps.
 
-  post_steps:
+  after_scan:
     type: steps
     default: []
     description: |
-      Steps to execute after the scan process completes.
+      Steps to run after the scan and the optional display of its results,
+      and before registry logout and the optional persist of output_dir to
+      the workspace, so files they add to output_dir are persisted. Like the
+      steps after them, they do not run when the scan fails (for example
+      because of fail_on), unless a run step sets when: always.
+      CircleCI's built-in post-steps, by contrast, run after the workspace
+      persist, as the job's very last steps.
 
 steps:
   # 1. Workspace attachment (conditional)
@@ -188,8 +205,8 @@ steps:
         - attach_workspace:
             at: << parameters.attach_workspace_at >>
 
-  # 2. Pre-steps hook
-  - steps: << parameters.pre_steps >>
+  # 2. Before-scan hook
+  - steps: << parameters.before_scan >>
 
   # 3. Create output directory
   - run:
@@ -205,14 +222,14 @@ steps:
             username: << parameters.registry_username >>
             password: << parameters.registry_password >>
 
-  # 5. Load image from archive (for local scan source)
+  # 5. Load image from archive (for local image source)
   - when:
       condition:
-        equal: ["local", << parameters.scan_source >>]
+        equal: ["local", << parameters.image_source >>]
       steps:
         - docker_load:
             image: << parameters.image >>
-            archive_path: << parameters.archive_path >>
+            archive_dir: << parameters.archive_dir >>
 
   # 6. Install and configure Grype
   - grype/install:
@@ -231,8 +248,8 @@ steps:
       environment:
         PARAM_IMAGE: << parameters.image >>
         PARAM_TAG: << parameters.tag >>
-        PARAM_SCAN_SOURCE: << parameters.scan_source >>
-        PARAM_ARCHIVE_PATH: << parameters.archive_path >>
+        PARAM_IMAGE_SOURCE: << parameters.image_source >>
+        PARAM_ARCHIVE_DIR: << parameters.archive_dir >>
         PARAM_REGISTRY: << parameters.registry >>
         PARAM_REGISTRY_NAMESPACE: << parameters.registry_namespace >>
         PARAM_OUTPUT_DIR: << parameters.output_dir >>
@@ -254,8 +271,8 @@ steps:
             name: Display Scan Results
             command: << include(scripts/grype/display_results.sh) >>
 
-  # 10. Post-steps hook
-  - steps: << parameters.post_steps >>
+  # 10. After-scan hook
+  - steps: << parameters.after_scan >>
 
   # 11. Registry logout (conditional)
   - when:

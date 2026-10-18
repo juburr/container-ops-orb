@@ -15,18 +15,18 @@ fi
 # Parse parameters with circleci env subst support
 if command -v circleci &> /dev/null; then
     IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
-    ARCHIVE_PATH=$(printf '%s' "${PARAM_ARCHIVE_PATH}" | circleci env subst)
+    ARCHIVE_DIR=$(printf '%s' "${PARAM_ARCHIVE_DIR}" | circleci env subst)
 else
     IMAGE="${PARAM_IMAGE}"
-    ARCHIVE_PATH="${PARAM_ARCHIVE_PATH}"
+    ARCHIVE_DIR="${PARAM_ARCHIVE_DIR}"
 fi
 
 # Expand ~ to home directory
-ARCHIVE_PATH="${ARCHIVE_PATH/#\~/$HOME}"
+ARCHIVE_DIR="${ARCHIVE_DIR/#\~/$HOME}"
 
-# Generate safe filename (same logic as archive)
+# Generate safe filename (same logic as docker_save)
 SAFE_NAME=$(echo "${IMAGE}" | tr '/' '-')
-ARCHIVE_FILE="${ARCHIVE_PATH}/${SAFE_NAME}-img.tar"
+ARCHIVE_FILE="${ARCHIVE_DIR}/${SAFE_NAME}-img.tar"
 
 echo "Loading image from archive..."
 echo "  Archive: ${ARCHIVE_FILE}"
@@ -35,8 +35,8 @@ echo "  Archive: ${ARCHIVE_FILE}"
 if [ ! -f "${ARCHIVE_FILE}" ]; then
     echo "ERROR: Archive file not found: ${ARCHIVE_FILE}"
     echo ""
-    echo "Available files in ${ARCHIVE_PATH}:"
-    ls -la "${ARCHIVE_PATH}" 2>/dev/null || echo "  (directory does not exist)"
+    echo "Available files in ${ARCHIVE_DIR}:"
+    ls -la "${ARCHIVE_DIR}" 2>/dev/null || echo "  (directory does not exist)"
     exit 1
 fi
 

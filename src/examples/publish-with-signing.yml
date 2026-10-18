@@ -1,12 +1,15 @@
 description: |
   Build and publish a Docker image with full supply chain security features.
   This example enables image signing, SBOM generation, and SBOM attestation.
+  The registry-credentials context provides REGISTRY_USERNAME and
+  REGISTRY_PASSWORD; signing-keys provides COSIGN_PRIVATE_KEY,
+  COSIGN_PASSWORD and COSIGN_PUBLIC_KEY.
 
 usage:
   version: "2.1"
 
   orbs:
-    container-ops-orb: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.3.0
 
   workflows:
     secure-publish:
@@ -27,5 +30,5 @@ usage:
             sbom_format: spdx-json
             attest: true
             context:
-              - docker-credentials
+              - registry-credentials
               - signing-keys

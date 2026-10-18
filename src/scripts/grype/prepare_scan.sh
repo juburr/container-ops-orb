@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Prepare Scan Configuration Script
-# Determines the scan target and output file based on scan source and parameters.
+# Determines the scan target and output file based on image source and parameters.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -10,8 +10,8 @@ IFS=$'\n\t'
 if command -v circleci &> /dev/null; then
     IMAGE=$(printf '%s' "${PARAM_IMAGE}" | circleci env subst)
     TAG=$(printf '%s' "${PARAM_TAG}" | circleci env subst)
-    SCAN_SOURCE=$(printf '%s' "${PARAM_SCAN_SOURCE}" | circleci env subst)
-    ARCHIVE_PATH=$(printf '%s' "${PARAM_ARCHIVE_PATH}" | circleci env subst)
+    IMAGE_SOURCE=$(printf '%s' "${PARAM_IMAGE_SOURCE}" | circleci env subst)
+    ARCHIVE_DIR=$(printf '%s' "${PARAM_ARCHIVE_DIR}" | circleci env subst)
     REGISTRY=$(printf '%s' "${PARAM_REGISTRY}" | circleci env subst)
     REGISTRY_NAMESPACE=$(printf '%s' "${PARAM_REGISTRY_NAMESPACE}" | circleci env subst)
     OUTPUT_DIR=$(printf '%s' "${PARAM_OUTPUT_DIR}" | circleci env subst)
@@ -19,8 +19,8 @@ if command -v circleci &> /dev/null; then
 else
     IMAGE="${PARAM_IMAGE}"
     TAG="${PARAM_TAG}"
-    SCAN_SOURCE="${PARAM_SCAN_SOURCE}"
-    ARCHIVE_PATH="${PARAM_ARCHIVE_PATH}"
+    IMAGE_SOURCE="${PARAM_IMAGE_SOURCE}"
+    ARCHIVE_DIR="${PARAM_ARCHIVE_DIR}"
     REGISTRY="${PARAM_REGISTRY}"
     REGISTRY_NAMESPACE="${PARAM_REGISTRY_NAMESPACE}"
     OUTPUT_DIR="${PARAM_OUTPUT_DIR}"
@@ -28,22 +28,22 @@ else
 fi
 
 # Expand ~ to home directory
-ARCHIVE_PATH="${ARCHIVE_PATH/#\~/$HOME}"
+ARCHIVE_DIR="${ARCHIVE_DIR/#\~/$HOME}"
 
 echo "Preparing scan configuration..."
 echo "  Image: ${IMAGE}"
 echo "  Tag: ${TAG}"
-echo "  Scan Source: ${SCAN_SOURCE}"
-echo "  Archive Path: ${ARCHIVE_PATH}"
+echo "  Image Source: ${IMAGE_SOURCE}"
+echo "  Archive Directory: ${ARCHIVE_DIR}"
 echo "  Registry: ${REGISTRY:-<not set>}"
 echo "  Registry Namespace: ${REGISTRY_NAMESPACE:-<not set>}"
 echo "  Output Directory: ${OUTPUT_DIR}"
 echo "  Output Format: ${OUTPUT_FORMAT}"
 echo ""
 
-# Determine scan target based on scan source
+# Determine scan target based on image source
 SCAN_TARGET=""
-case "${SCAN_SOURCE}" in
+case "${IMAGE_SOURCE}" in
     "local")
         # Scan local docker image (loaded from archive)
         SCAN_TARGET="${IMAGE}:${TAG}"
@@ -64,13 +64,13 @@ case "${SCAN_SOURCE}" in
     "archive")
         # Scan tar archive directly using docker-archive: scheme
         SAFE_NAME=$(echo "${IMAGE}" | tr '/' '-')
-        ARCHIVE_FILE="${ARCHIVE_PATH}/${SAFE_NAME}-img.tar"
+        ARCHIVE_FILE="${ARCHIVE_DIR}/${SAFE_NAME}-img.tar"
         SCAN_TARGET="docker-archive:${ARCHIVE_FILE}"
         echo "Scan mode: Archive file"
         echo "  Archive file: ${ARCHIVE_FILE}"
         ;;
     *)
-        echo "ERROR: Invalid scan_source: ${SCAN_SOURCE}"
+        echo "ERROR: Invalid image_source: ${IMAGE_SOURCE}"
         echo "Valid options: local, registry, archive"
         exit 1
         ;;

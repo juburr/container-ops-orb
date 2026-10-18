@@ -52,32 +52,60 @@ jobs:
 
             RUN echo "Hello from container-ops-orb test image"
             EOF
-      # Test docker-build command
+      # Test docker_build command
       - container-ops-orb/docker_build:
           image: test-image
           tags: "test-tag ${CIRCLE_SHA1}"
           oci_labels: true
-      # extra_docker_args starts with "-", which circleci env subst must not
+      # extra_args starts with "-", which circleci env subst must not
       # parse as one of its own flags, and its ${CIRCLE_SHA1} must still expand.
       - container-ops-orb/docker_build:
           image: test-image-extra-args
           tags: test-tag
-          extra_docker_args: "--no-cache --label orb-test.extra-args=${CIRCLE_SHA1}"
+          extra_args: "--no-cache --label orb-test.extra-args=${CIRCLE_SHA1}"
       - run:
-          name: Verify extra_docker_args reached docker build
+          name: Verify extra_args reached docker build
           command: |
             label=$(docker image inspect --format '{{ index .Config.Labels "orb-test.extra-args" }}' test-image-extra-args:test-tag)
             if [ "${label}" != "${CIRCLE_SHA1}" ]; then
               echo "ERROR: expected label orb-test.extra-args=${CIRCLE_SHA1}, got '${label}'"
               exit 1
             fi
-            echo "extra_docker_args were passed through and expanded."
-      # Test docker-inspect command
+            echo "extra_args were passed through and expanded."
+      # build_args is split on spaces and newlines, one --build-arg per pair.
+      - run:
+          name: Create build_args test Dockerfile
+          command: |
+            cat > Dockerfile.build-args \<<'EOF'
+            FROM alpine:3.20
+            ARG ARG_ONE
+            ARG ARG_TWO
+            ARG ARG_THREE
+            LABEL orb-test.build-args="${ARG_ONE},${ARG_TWO},${ARG_THREE}"
+            EOF
+      - container-ops-orb/docker_build:
+          image: test-image-build-args
+          tags: test-tag
+          dockerfile: Dockerfile.build-args
+          oci_labels: false
+          build_args: |
+            ARG_ONE=1 ARG_TWO=2
+            ARG_THREE=3
+      - run:
+          name: Verify each build_args pair reached docker build
+          command: |
+            label=$(docker image inspect --format '{{ index .Config.Labels "orb-test.build-args" }}' test-image-build-args:test-tag)
+            if [ "${label}" != "1,2,3" ]; then
+              echo "ERROR: expected label orb-test.build-args=1,2,3, got '${label}'"
+              exit 1
+            fi
+            echo "build_args were passed as separate --build-arg values."
+      # Test docker_inspect command
       - container-ops-orb/docker_inspect:
           image: test-image
           tag: test-tag
-      # Test docker-archive command (without workspace persistence for this test)
-      - container-ops-orb/docker_archive:
+      # Test docker_save command (without workspace persistence for this test)
+      - container-ops-orb/docker_save:
           image: test-image
           tag: test-tag
           persist_to_workspace: false
@@ -92,7 +120,7 @@ jobs:
               echo "ERROR: Archive not found"
               exit 1
             fi
-      # Test docker-load command
+      # Test docker_load command
       - run:
           name: Remove image to test load
           command: docker rmi test-image:test-tag
@@ -232,7 +260,7 @@ jobs:
       - container-ops-orb/docker_build:
           image: publish-test-app
           tags: "abc123"
-      - container-ops-orb/docker_archive:
+      - container-ops-orb/docker_save:
           image: publish-test-app
           tag: abc123
           persist_to_workspace: false
@@ -250,7 +278,7 @@ jobs:
       # Test the publish flow components
       - container-ops-orb/docker_load:
           image: publish-test-app
-          archive_path: ~/images
+          archive_dir: ~/images
       - container-ops-orb/docker_tag:
           source_image: "publish-test-app:abc123"
           target_image: "localhost:5000/testorg/publish-test-app"
@@ -407,7 +435,7 @@ jobs:
           image: integration-app
           tag: int123
 
-      - container-ops-orb/docker_archive:
+      - container-ops-orb/docker_save:
           image: integration-app
           tag: int123
           persist_to_workspace: false
@@ -421,7 +449,7 @@ jobs:
 
       - container-ops-orb/docker_load:
           image: integration-app
-          archive_path: ~/images
+          archive_dir: ~/images
 
       - container-ops-orb/docker_tag:
           source_image: "integration-app:int123"
@@ -575,7 +603,7 @@ jobs:
             docker build -t addtags-app:sha123 .
 
       # Archive the image
-      - container-ops-orb/docker_archive:
+      - container-ops-orb/docker_save:
           image: addtags-app
           tag: sha123
           persist_to_workspace: false
@@ -588,7 +616,7 @@ jobs:
       # Test full flow with additional tags
       - container-ops-orb/docker_load:
           image: addtags-app
-          archive_path: ~/images
+          archive_dir: ~/images
       - container-ops-orb/docker_tag:
           source_image: "addtags-app:sha123"
           target_image: "localhost:5000/org/addtags-app"
@@ -687,7 +715,7 @@ jobs:
       - container-ops-orb/docker_build:
           image: scan-test-app
           tags: "scan123"
-      - container-ops-orb/docker_archive:
+      - container-ops-orb/docker_save:
           image: scan-test-app
           tag: scan123
           persist_to_workspace: false
@@ -700,7 +728,7 @@ jobs:
       # Load and scan the image
       - container-ops-orb/docker_load:
           image: scan-test-app
-          archive_path: ~/images
+          archive_dir: ~/images
 
       # Install grype and scan
       - grype/install:
@@ -716,8 +744,8 @@ jobs:
           environment:
             PARAM_IMAGE: scan-test-app
             PARAM_TAG: scan123
-            PARAM_SCAN_SOURCE: local
-            PARAM_ARCHIVE_PATH: ~/images
+            PARAM_IMAGE_SOURCE: local
+            PARAM_ARCHIVE_DIR: ~/images
             PARAM_REGISTRY: ""
             PARAM_REGISTRY_NAMESPACE: ""
             PARAM_OUTPUT_DIR: scan-results
@@ -764,7 +792,7 @@ jobs:
       - container-ops-orb/docker_build:
           image: archive-scan-app
           tags: "archscan"
-      - container-ops-orb/docker_archive:
+      - container-ops-orb/docker_save:
           image: archive-scan-app
           tag: archscan
           persist_to_workspace: false
@@ -909,7 +937,7 @@ workflows:
           archive: true
           persist_to_workspace: false
           inspect: true
-          pre_steps:
+          before_build:
             - run:
                 name: Create test Dockerfile
                 command: |
@@ -937,7 +965,7 @@ workflows:
           tags: "latest ${CIRCLE_SHA1}"
           archive: true
           persist_to_workspace: false
-          pre_steps:
+          before_build:
             - run:
                 name: Create multi-stage Dockerfile
                 command: |
@@ -966,10 +994,10 @@ workflows:
           name: build-job-custom-path-test
           image: orb-test-custom-path
           dockerfile: containers/app/Dockerfile
-          docker_context: .
+          build_context: .
           archive: false
           inspect: true
-          pre_steps:
+          before_build:
             - run:
                 name: Create Dockerfile in custom location
                 command: |
@@ -986,11 +1014,11 @@ workflows:
           name: scan-job-test
           image: scan-job-app
           tag: scanjob
-          scan_source: local
+          image_source: local
           verify_checksums: strict
           attach_workspace: false
           persist_to_workspace: false
-          pre_steps:
+          before_scan:
             - run:
                 name: Create test Dockerfile
                 command: |
@@ -1001,7 +1029,7 @@ workflows:
             - container-ops-orb/docker_build:
                 image: scan-job-app
                 tags: "scanjob"
-            - container-ops-orb/docker_archive:
+            - container-ops-orb/docker_save:
                 image: scan-job-app
                 tag: scanjob
                 persist_to_workspace: false

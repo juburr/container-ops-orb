@@ -1,12 +1,14 @@
 description: |
   Build and scan a container image for vulnerabilities before publishing.
   This workflow scans the local image from the build job's archive.
+  The registry-credentials context provides REGISTRY_USERNAME and
+  REGISTRY_PASSWORD for the publish job.
 
 usage:
   version: "2.1"
 
   orbs:
-    container-ops-orb: juburr/container-ops-orb@0.1.0
+    container-ops-orb: juburr/container-ops-orb@0.3.0
 
   workflows:
     build-scan-publish:
@@ -17,7 +19,7 @@ usage:
             requires:
               - container-ops-orb/build
             image: myapp
-            scan_source: local
+            image_source: local
             fail_on: high
         - container-ops-orb/publish:
             requires:
@@ -26,4 +28,4 @@ usage:
             registry: ghcr.io
             registry_namespace: myorg
             context:
-              - docker-credentials
+              - registry-credentials
