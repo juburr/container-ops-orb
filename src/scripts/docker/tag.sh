@@ -57,7 +57,9 @@ fi
 # Parse tags and apply each one
 FIRST_TAG=""
 IFS=' ' read -ra TAG_ARRAY <<< "${TAGS}"
-for TAG in "${TAG_ARRAY[@]}"; do
+# Empty when the first line of tags is blank or only spaces. Bash before 4.4
+# treats an empty array as unset under set -u, so expand it only when set.
+for TAG in ${TAG_ARRAY[@]+"${TAG_ARRAY[@]}"}; do
     # Skip empty tags
     if [ -z "${TAG}" ]; then
         continue

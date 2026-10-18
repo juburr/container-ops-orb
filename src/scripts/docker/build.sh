@@ -159,7 +159,9 @@ fi
 # end of its input, which is expected here.
 BUILD_ARG_ARRAY=()
 IFS=$' \t\n' read -r -d '' -a BUILD_ARG_ARRAY <<< "${BUILD_ARGS}" || true
-for arg in "${BUILD_ARG_ARRAY[@]}"; do
+# Empty without build_args. Bash before 4.4 treats an empty array as unset
+# under set -u, so it is expanded only when it has elements.
+for arg in ${BUILD_ARG_ARRAY[@]+"${BUILD_ARG_ARRAY[@]}"}; do
     BUILD_CMD+=("--build-arg" "${arg}")
 done
 
@@ -231,7 +233,8 @@ if ! split_shell_words "${EXTRA_ARGS}"; then
     echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it." >&2
     exit 1
 fi
-BUILD_CMD+=("${SHELL_WORDS[@]}")
+# Empty without extra_args (bash before 4.4 treats that as unset under set -u).
+BUILD_CMD+=(${SHELL_WORDS[@]+"${SHELL_WORDS[@]}"})
 
 # Add build context as last argument
 BUILD_CMD+=("${BUILD_CONTEXT}")

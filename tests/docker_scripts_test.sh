@@ -8,6 +8,8 @@
 #   and checks the Dockerfile where docker build -f looks for it
 # - docker_build splits extra_args like shell words without expanding or
 #   running anything in it, and fails before docker runs on an unmatched quote
+# - docker_build without build_args and extra_args runs docker with no extra
+#   arguments, also on bash < 4.4, where an empty array is unset under set -u
 # - docker_pull splits images on whitespace and only warns on a failed pull
 # - docker_save refuses to persist an archive_dir other than
 #   <workspace_root>/images, the only directory its workspace step persists
@@ -149,6 +151,19 @@ if [[ "${STATUS}" -eq 0 ]] && ! grep -qxF -- --build-arg "${DOCKER_LOG}"; then
     pass "empty build_args adds no --build-arg"
 else
     fail "empty build_args (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}")"
+fi
+
+# Without build_args and extra_args, BUILD_ARG_ARRAY and SHELL_WORDS are empty.
+# Bash before 4.4 treats an empty array as unset under set -u, so unguarded
+# expansions of them stop build.sh before docker runs. The exact arguments
+# also rule out an empty one in their place.
+build_env
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -eq 0 ]] \
+    && [[ "$(cat "${DOCKER_LOG}")" == "$(printf '%s\n' build -f Dockerfile -t app:t1 -t app:t2 . --end--)" ]]; then
+    pass "no build_args and no extra_args add no arguments (empty arrays on bash < 4.4)"
+else
+    fail "no build_args and no extra_args (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
 fi
 
 build_env
