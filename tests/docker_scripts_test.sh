@@ -239,6 +239,32 @@ for value in '--label commit=$(git rev-parse HEAD)' '--label n=$((1 + 2))' '--la
     fi
 done
 
+# Outside quotes, a shell operator fails too. eval of the old
+# BUILD_CMD+=(...) rejected each one as a syntax error, except <(...) and
+# >(...), which it ran. In quotes they are text.
+for value in '--label source=<(printf hello world)' '--label a >(cat)' '--no-cache > out' \
+    '--no-cache | tee' '--no-cache & --pull' '--no-cache; --pull' '--label a(b' '--label a)b'; do
+    build_env
+    PARAM_EXTRA_ARGS=${value}
+    build_in_work 'touch Dockerfile'
+    label=$(printf '%q' "${value}")
+    if [[ "${STATUS}" -ne 0 ]] && [[ ! -s "${DOCKER_LOG}" ]] \
+        && [[ "${OUTPUT}" == *"ERROR: extra_args could not be split into arguments: it has one of | & ; < > ( ) outside quotes."* ]]; then
+        pass "extra_args with a shell operator outside quotes (${label}) fails before docker runs"
+    else
+        fail "extra_args with a shell operator outside quotes (${label}) should fail (status ${STATUS}): ${OUTPUT}"
+    fi
+done
+build_env
+PARAM_EXTRA_ARGS='--label "src=<(printf a b)" --label '"'"'ops=| & ; > ( )'"'"' --label x\>y'
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -eq 0 ]] \
+    && docker_args_contain -t app:t2 --label 'src=<(printf a b)' --label 'ops=| & ; > ( )' --label 'x>y' . --end--; then
+    pass "extra_args pass shell operators in quotes or after a backslash to docker as text"
+else
+    fail "extra_args quoted shell operators (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
+fi
+
 # Bash's $'...' and $"..." quoting is not implemented, so it fails rather
 # than reaching docker with a literal $. A $ in quotes, or before anything
 # but a quote, is text.
