@@ -6,9 +6,14 @@
 # - every PARAM_* variable a script reads is set by each YAML file that runs it
 # - docker_build splits build_args on whitespace, one --build-arg per pair,
 #   and checks the Dockerfile where docker build -f looks for it
+# - docker_build splits extra_args like shell words without expanding or
+#   running anything in it, and fails before docker runs on an unmatched quote
 # - docker_pull splits images on whitespace and only warns on a failed pull
 # - docker_save refuses to persist an archive_dir other than
 #   <workspace_root>/images, the only directory its workspace step persists
+# - docker_login passes the password on stdin, not as an argument
+# - a value a script exports to $BASH_ENV comes back unchanged when a later
+#   step sources it, even with a quote and a $(...) in it
 #
 # Run from a checkout:
 #   bash tests/docker_scripts_test.sh
@@ -42,19 +47,23 @@ EOF
 
 # Logs each invocation's arguments, one per line, followed by "--end--".
 # "docker save -o FILE" creates FILE. "docker pull" of an image listed in
-# DOCKER_PULL_FAIL fails.
+# DOCKER_PULL_FAIL fails. "docker load" reports loading DOCKER_LOADED_IMAGE,
+# if set. "docker login" saves its stdin in DOCKER_STDIN.
 cat > "${TMP}/bin/docker" << 'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" --end-- >> "${DOCKER_LOG}"
 case "${1:-}" in
     save) : > "$3" ;;
     pull) [[ " ${DOCKER_PULL_FAIL:-} " != *" $2 "* ]] || exit 1 ;;
+    load) [[ -z "${DOCKER_LOADED_IMAGE:-}" ]] || printf 'Loaded image: %s\n' "${DOCKER_LOADED_IMAGE}" ;;
+    login) cat > "${DOCKER_STDIN}" ;;
 esac
 exit 0
 EOF
 chmod +x "${TMP}/bin/circleci" "${TMP}/bin/docker"
 export PATH="${TMP}/bin:${PATH}"
 export DOCKER_LOG="${TMP}/docker.log"
+export DOCKER_STDIN="${TMP}/docker.stdin"
 export HOME="${TMP}/home"
 export BASH_ENV="${TMP}/bash_env"
 
@@ -65,14 +74,15 @@ fail() {
     FAILURES=$((FAILURES + 1))
 }
 
-# run SCRIPT: runs a script from src/scripts in a fresh working directory
-# with a fresh docker log. Sets STATUS and OUTPUT.
+# run SCRIPT [SETUP]: runs a script from src/scripts in a fresh working
+# directory, after running SETUP there, with a fresh docker log and no
+# $BASH_ENV. Sets STATUS and OUTPUT.
 run() {
-    rm -rf "${TMP}/work" "${HOME}" "${DOCKER_LOG}" "${BASH_ENV}"
+    rm -rf "${TMP}/work" "${HOME}" "${DOCKER_LOG}" "${DOCKER_STDIN}" "${BASH_ENV}"
     mkdir -p "${TMP}/work" "${HOME}"
     : > "${DOCKER_LOG}"
     STATUS=0
-    OUTPUT=$(cd "${TMP}/work" && bash "${SCRIPTS}/$1" 2>&1) || STATUS=$?
+    OUTPUT=$(cd "${TMP}/work" && eval "${2:-:}" && bash "${SCRIPTS}/$1" 2>&1) || STATUS=$?
 }
 
 # docker_args_contain ARG...: the docker log holds these lines in sequence.
@@ -153,6 +163,44 @@ else
     fail "build parameters (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}")"
 fi
 
+# extra_args is split like shell words, across lines too, but nothing in it
+# is expanded or run: the $(...) and backticks reach docker as text.
+build_env
+PARAM_EXTRA_ARGS=$(cat << 'END'
+--label "cmd=$(touch pwned)" --label tick=`touch pwned`
+--label a\ b\\c --label 'C:\dir'
+END
+)
+build_in_work 'touch Dockerfile'
+# shellcheck disable=SC2016 # the $(...) and backticks are expected verbatim
+if [[ "${STATUS}" -eq 0 ]] && [[ ! -e "${TMP}/work/pwned" ]] \
+    && docker_args_contain -t app:t2 --label 'cmd=$(touch pwned)' --label 'tick=`touch' 'pwned`' \
+        --label 'a b\c' --label 'C:\dir' . --end--; then
+    pass "extra_args are split like shell words; \$(...), backticks and backslashes reach docker as text"
+else
+    fail "extra_args split (status ${STATUS}, work: $(ls "${TMP}/work")): $(tr '\n' ' ' < "${DOCKER_LOG}")"
+fi
+
+build_env
+PARAM_EXTRA_ARGS="--no-cache --label 'a=b"
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -ne 0 ]] && [[ ! -s "${DOCKER_LOG}" ]] \
+    && [[ "${OUTPUT}" == *"ERROR: extra_args could not be split into arguments"* ]]; then
+    pass "extra_args with an unmatched quote fails before docker runs"
+else
+    fail "extra_args with an unmatched quote should fail (status ${STATUS}): ${OUTPUT}"
+fi
+
+build_env
+PARAM_EXTRA_ARGS=$' \t\n '
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -eq 0 ]] \
+    && [[ "$(cat "${DOCKER_LOG}")" == "$(printf '%s\n' build -f Dockerfile -t app:t1 -t app:t2 . --end--)" ]]; then
+    pass "whitespace-only extra_args adds no arguments"
+else
+    fail "whitespace-only extra_args (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}")"
+fi
+
 build_env
 PARAM_BUILD_CONTEXT=ctx
 build_in_work 'mkdir ctx && touch ctx/Dockerfile'
@@ -166,7 +214,7 @@ fi
 export PARAM_IMAGES=$'one:1 two:2\nthree:3\n' DOCKER_PULL_FAIL=two:2
 run docker/pull.sh
 if [[ "${STATUS}" -eq 0 ]] && docker_args_contain pull one:1 --end-- pull two:2 --end-- pull three:3 --end-- \
-    && [[ "${OUTPUT}" == *"WARNING: Failed to pull two:2"* ]]; then
+    && [[ "${OUTPUT}" == *"WARN: Failed to pull two:2"* ]]; then
     pass "images split on whitespace; a failed pull only warns"
 else
     fail "docker_pull (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
@@ -219,6 +267,94 @@ save_case() {
         'mkdir -p ../elsewhere && ln -s ../elsewhere "${HOME}/images"'
     save_case "other archive_dir without persistence" pass "~/out" false "~"
 }
+
+# --- docker_login ------------------------------------------------------------
+# The password must not be in docker's arguments, where other processes can
+# read it. "-n" also checks it reaches stdin intact (echo would drop it).
+export PARAM_REGISTRY=registry.example PARAM_USERNAME=TEST_REGISTRY_USER PARAM_PASSWORD=TEST_REGISTRY_PASS
+export TEST_REGISTRY_USER=user TEST_REGISTRY_PASS=-n
+run docker/login.sh
+if [[ "${STATUS}" -eq 0 ]] && docker_args_contain login registry.example -u user --password-stdin --end-- \
+    && ! grep -qxF -- -n "${DOCKER_LOG}" && [[ "$(cat "${DOCKER_STDIN}")" == "-n" ]]; then
+    pass "docker_login passes the password on stdin, not as an argument"
+else
+    fail "docker_login (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
+fi
+unset TEST_REGISTRY_USER TEST_REGISTRY_PASS
+
+# --- exports to $BASH_ENV ----------------------------------------------------
+# Later steps source $BASH_ENV, so a value exported there must come back
+# unchanged and run nothing. Wrapped in single quotes instead of quoted with
+# printf %q, the quotes in VALUE would end the quoting and $(>pwned) would
+# create a file. VALUE has no spaces, since tags are split on them.
+VALUE="x'\$(>pwned)'y"
+
+# check_exports SCRIPT [VAR WANT]...: after run SCRIPT, sourcing $BASH_ENV in
+# an empty directory sets each VAR to WANT and creates no file there.
+check_exports() {
+    local script=$1 var want got
+    shift
+    if [[ "${STATUS}" -ne 0 ]]; then
+        fail "${script} with a quote and \$(...) in its values (status ${STATUS}): ${OUTPUT}"
+        return
+    fi
+    rm -rf "${TMP}/source"
+    mkdir "${TMP}/source"
+    while [[ $# -gt 0 ]]; do
+        var=$1 want=$2
+        shift 2
+        # shellcheck source=/dev/null # written by the script under test
+        got=$(cd "${TMP}/source" && source "${BASH_ENV}" > /dev/null 2>&1 && printf '%s' "${!var-(unset)}") \
+            || got="(sourcing it failed)"
+        if [[ "${got}" != "${want}" ]]; then
+            fail "${script}: ${var} came back from \$BASH_ENV as ${got}, not ${want}"
+            return
+        fi
+    done
+    if [[ -n "$(ls -A "${TMP}/source")" ]]; then
+        fail "${script}: sourcing \$BASH_ENV ran a command from an exported value"
+        return
+    fi
+    pass "${script} exports values with a quote and \$(...) to \$BASH_ENV unchanged"
+}
+
+build_env
+export PARAM_IMAGE="${VALUE}" PARAM_TAGS="${VALUE} t2"
+run docker/build.sh 'touch Dockerfile'
+check_exports docker/build.sh BUILT_IMAGE "${VALUE}" BUILT_IMAGE_TAG "${VALUE}" BUILT_IMAGE_FULL "${VALUE}:${VALUE}"
+
+export PARAM_IMAGE="${VALUE}" PARAM_ARCHIVE_DIR=archives DOCKER_LOADED_IMAGE="${VALUE}:${VALUE}"
+# shellcheck disable=SC2016 # expanded by run's eval, inside double quotes
+run docker/load.sh 'mkdir archives && touch "archives/${PARAM_IMAGE}-img.tar"'
+check_exports docker/load.sh LOADED_IMAGE "${VALUE}:${VALUE}"
+unset DOCKER_LOADED_IMAGE
+
+export PARAM_IMAGE="${VALUE}" PARAM_TAG="${VALUE}" PARAM_ARCHIVE_DIR=archives
+export PARAM_PERSIST_TO_WORKSPACE=false PARAM_WORKSPACE_ROOT=.
+run docker/save.sh
+check_exports docker/save.sh ARCHIVED_IMAGE_PATH "archives/${VALUE}-img.tar" ARCHIVED_IMAGE_NAME "${VALUE}"
+
+export PARAM_IMAGE="${VALUE}" PARAM_TAGS="${VALUE} t2"
+run docker/push.sh
+check_exports docker/push.sh PUSHED_IMAGE "${VALUE}" PUSHED_IMAGE_TAG "${VALUE}" PUSHED_IMAGE_FULL "${VALUE}:${VALUE}"
+
+export PARAM_SOURCE_IMAGE="${VALUE}:source" PARAM_TARGET_IMAGE="${VALUE}" PARAM_TAGS="${VALUE} t2"
+run docker/tag.sh
+check_exports docker/tag.sh TAGGED_IMAGE "${VALUE}" TAGGED_IMAGE_TAG "${VALUE}" TAGGED_IMAGE_FULL "${VALUE}:${VALUE}"
+
+export PARAM_IMAGE="${VALUE}" PARAM_SBOM_FORMAT=spdx-json
+# shellcheck disable=SC2016 # expanded by run's eval, inside double quotes
+run docker/prepare_attestation.sh 'mkdir sboms && touch "sboms/${PARAM_IMAGE}.spdx.json"'
+check_exports docker/prepare_attestation.sh SBOM_FILE "sboms/${VALUE}.spdx.json" PREDICATE_TYPE spdxjson
+
+export PARAM_IMAGE="${VALUE}" PARAM_TAG="${VALUE}" PARAM_IMAGE_SOURCE=local PARAM_ARCHIVE_DIR=archives
+export PARAM_REGISTRY="" PARAM_REGISTRY_NAMESPACE="" PARAM_OUTPUT_DIR="${VALUE}" PARAM_OUTPUT_FORMAT=sarif
+run grype/prepare_scan.sh
+check_exports grype/prepare_scan.sh SCAN_TARGET "${VALUE}:${VALUE}" \
+    SCAN_OUTPUT_FILE "${VALUE}/${VALUE}__${VALUE}.grype.sarif" SANITIZED_IMAGE_NAME "${VALUE}__${VALUE}"
+
+# Child bash processes source $BASH_ENV when they start; leave none behind.
+rm -f "${BASH_ENV}"
 
 if [[ "${FAILURES}" -gt 0 ]]; then
     echo "${FAILURES} failure(s)"

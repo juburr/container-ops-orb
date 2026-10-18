@@ -11,7 +11,7 @@ IFS=$'\n\t'
 REQUIRED_COMMANDS=("docker")
 for CMD in "${REQUIRED_COMMANDS[@]}"; do
     if ! command -v "$CMD" > /dev/null; then
-        echo "FATAL: Command '$CMD' is required but not installed."
+        echo "ERROR: Command '$CMD' is required but not installed." >&2
         exit 1
     fi
 done
@@ -46,7 +46,7 @@ PULL="${PARAM_PULL:-false}"
 
 # Validate required parameters
 if [ -z "${IMAGE}" ]; then
-    echo "ERROR: image parameter is required."
+    echo "ERROR: image parameter is required." >&2
     exit 1
 fi
 
@@ -54,7 +54,7 @@ fi
 IFS=' ' read -ra TAG_ARRAY <<< "${TAGS}"
 
 if [ ${#TAG_ARRAY[@]} -eq 0 ]; then
-    echo "ERROR: At least one tag is required."
+    echo "ERROR: At least one tag is required." >&2
     exit 1
 fi
 
@@ -73,11 +73,11 @@ fi
 # Check that the Dockerfile exists where docker build -f looks for it: a
 # relative path is resolved against the working directory, not the context.
 if [ ! -f "${DOCKERFILE}" ]; then
-    echo "ERROR: Dockerfile not found at ${DOCKERFILE} (working directory: $(pwd))"
+    echo "ERROR: Dockerfile not found at ${DOCKERFILE} (working directory: $(pwd))" >&2
     if [ -f "${BUILD_CONTEXT}/${DOCKERFILE}" ]; then
-        echo "  ${BUILD_CONTEXT}/${DOCKERFILE} exists, but docker build resolves a relative"
-        echo "  dockerfile against the working directory, not build_context."
-        echo "  Set dockerfile to ${BUILD_CONTEXT}/${DOCKERFILE} to use it."
+        echo "  ${BUILD_CONTEXT}/${DOCKERFILE} exists, but docker build resolves a relative" >&2
+        echo "  dockerfile against the working directory, not build_context." >&2
+        echo "  Set dockerfile to ${BUILD_CONTEXT}/${DOCKERFILE} to use it." >&2
     fi
     exit 1
 fi
@@ -163,10 +163,22 @@ for arg in "${BUILD_ARG_ARRAY[@]}"; do
     BUILD_CMD+=("--build-arg" "${arg}")
 done
 
-# Add extra args (split on spaces, respecting quotes)
-if [ -n "${EXTRA_ARGS}" ]; then
-    eval "BUILD_CMD+=(${EXTRA_ARGS})"
+# Add extra args, split like shell words: quotes keep a value with spaces
+# together and a backslash outside quotes escapes the next character. Nothing
+# is expanded or executed: a $(...) or backtick that reached extra_args through
+# an environment variable (a branch name, a commit message) reaches docker as
+# text. xargs splits the words; -r adds nothing for empty or whitespace-only
+# input. mapfile can't see the exit status of the process substitution it
+# reads, so a first pass checks that xargs can split the value (it fails on an
+# unmatched quote) before docker runs.
+if ! printf '%s' "${EXTRA_ARGS}" | xargs -r printf '%s\0' > /dev/null; then
+    echo "ERROR: extra_args could not be split into arguments: ${EXTRA_ARGS}" >&2
+    echo "  Check it for a quote that is not closed on the same line. A literal ' or \" needs a backslash before it." >&2
+    exit 1
 fi
+EXTRA_ARG_ARRAY=()
+mapfile -d '' -t EXTRA_ARG_ARRAY < <(printf '%s' "${EXTRA_ARGS}" | xargs -r printf '%s\0')
+BUILD_CMD+=("${EXTRA_ARG_ARRAY[@]}")
 
 # Add build context as last argument
 BUILD_CMD+=("${BUILD_CONTEXT}")
@@ -186,6 +198,6 @@ done
 
 # Export the primary tag (first in list) for subsequent steps
 PRIMARY_TAG="${TAG_ARRAY[0]}"
-echo "export BUILT_IMAGE='${IMAGE}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
-echo "export BUILT_IMAGE_TAG='${PRIMARY_TAG}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
-echo "export BUILT_IMAGE_FULL='${IMAGE}:${PRIMARY_TAG}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' BUILT_IMAGE "${IMAGE}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' BUILT_IMAGE_TAG "${PRIMARY_TAG}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' BUILT_IMAGE_FULL "${IMAGE}:${PRIMARY_TAG}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true

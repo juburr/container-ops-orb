@@ -8,7 +8,7 @@ IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -23,12 +23,12 @@ fi
 
 # Validate required parameters
 if [ -z "${IMAGE}" ]; then
-    echo "ERROR: image parameter is required."
+    echo "ERROR: image parameter is required." >&2
     exit 1
 fi
 
 if [ -z "${TAGS}" ]; then
-    echo "ERROR: tags parameter is required."
+    echo "ERROR: tags parameter is required." >&2
     exit 1
 fi
 
@@ -64,7 +64,7 @@ echo "Successfully pushed ${PUSH_COUNT} tag(s) to registry."
 
 # Export pushed image info to BASH_ENV for subsequent steps
 {
-    echo "export PUSHED_IMAGE='${IMAGE}'"
-    echo "export PUSHED_IMAGE_TAG='${FIRST_PUSHED}'"
-    echo "export PUSHED_IMAGE_FULL='${IMAGE}:${FIRST_PUSHED}'"
+    printf 'export %s=%q\n' PUSHED_IMAGE "${IMAGE}"
+    printf 'export %s=%q\n' PUSHED_IMAGE_TAG "${FIRST_PUSHED}"
+    printf 'export %s=%q\n' PUSHED_IMAGE_FULL "${IMAGE}:${FIRST_PUSHED}"
 } >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true

@@ -70,8 +70,8 @@ case "${IMAGE_SOURCE}" in
         echo "  Archive file: ${ARCHIVE_FILE}"
         ;;
     *)
-        echo "ERROR: Invalid image_source: ${IMAGE_SOURCE}"
-        echo "Valid options: local, registry, archive"
+        echo "ERROR: Invalid image_source: ${IMAGE_SOURCE}" >&2
+        echo "Valid options: local, registry, archive" >&2
         exit 1
         ;;
 esac
@@ -113,9 +113,9 @@ echo ""
 
 # Export variables for subsequent steps
 {
-    echo "export SCAN_TARGET='${SCAN_TARGET}'"
-    echo "export SCAN_OUTPUT_FILE='${SCAN_OUTPUT_FILE}'"
-    echo "export SANITIZED_IMAGE_NAME='${SANITIZED_NAME}'"
+    printf 'export %s=%q\n' SCAN_TARGET "${SCAN_TARGET}"
+    printf 'export %s=%q\n' SCAN_OUTPUT_FILE "${SCAN_OUTPUT_FILE}"
+    printf 'export %s=%q\n' SANITIZED_IMAGE_NAME "${SANITIZED_NAME}"
 } >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
 
 echo "Scan configuration complete."

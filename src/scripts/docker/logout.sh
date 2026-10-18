@@ -8,7 +8,7 @@ IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -21,7 +21,7 @@ fi
 
 # Validate inputs
 if [ -z "${REGISTRY}" ]; then
-    echo "ERROR: Registry parameter is required."
+    echo "ERROR: Registry parameter is required." >&2
     exit 1
 fi
 

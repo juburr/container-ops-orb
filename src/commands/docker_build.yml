@@ -59,7 +59,9 @@ parameters:
     description: |
       Additional arguments appended to the docker build (or docker buildx
       build) command, before the build context. Split like shell words, so
-      quotes keep a value with spaces together.
+      quotes keep a value with spaces together. Environment variables such
+      as ${CIRCLE_SHA1} are substituted, but nothing else is expanded or
+      executed: $(...), backticks, ~ and wildcards reach docker as written.
       Example: "--no-cache --progress=plain"
 
   oci_labels:
