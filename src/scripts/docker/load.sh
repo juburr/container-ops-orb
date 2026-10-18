@@ -8,7 +8,7 @@ IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -33,10 +33,10 @@ echo "  Archive: ${ARCHIVE_FILE}"
 
 # Check if archive exists
 if [ ! -f "${ARCHIVE_FILE}" ]; then
-    echo "ERROR: Archive file not found: ${ARCHIVE_FILE}"
-    echo ""
-    echo "Available files in ${ARCHIVE_DIR}:"
-    ls -la "${ARCHIVE_DIR}" 2>/dev/null || echo "  (directory does not exist)"
+    echo "ERROR: Archive file not found: ${ARCHIVE_FILE}" >&2
+    echo "" >&2
+    echo "Available files in ${ARCHIVE_DIR}:" >&2
+    { ls -la "${ARCHIVE_DIR}" 2>/dev/null || echo "  (directory does not exist)"; } >&2
     exit 1
 fi
 
@@ -52,5 +52,5 @@ echo ""
 echo "Successfully loaded image from archive."
 if [ -n "${LOADED_IMAGE}" ]; then
     echo "  Image: ${LOADED_IMAGE}"
-    echo "export LOADED_IMAGE='${LOADED_IMAGE}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+    printf 'export %s=%q\n' LOADED_IMAGE "${LOADED_IMAGE}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
 fi

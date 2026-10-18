@@ -59,10 +59,11 @@ jobs:
           oci_labels: true
       # extra_args starts with "-", which circleci env subst must not
       # parse as one of its own flags, and its ${CIRCLE_SHA1} must still expand.
+      # The quoted value keeps its space, and its $(...) is not run.
       - container-ops-orb/docker_build:
           image: test-image-extra-args
           tags: test-tag
-          extra_args: "--no-cache --label orb-test.extra-args=${CIRCLE_SHA1}"
+          extra_args: "--no-cache --label orb-test.extra-args=${CIRCLE_SHA1} --label 'orb-test.literal=$(touch pwned) x'"
       - run:
           name: Verify extra_args reached docker build
           command: |
@@ -71,7 +72,12 @@ jobs:
               echo "ERROR: expected label orb-test.extra-args=${CIRCLE_SHA1}, got '${label}'"
               exit 1
             fi
-            echo "extra_args were passed through and expanded."
+            literal=$(docker image inspect --format '{{ index .Config.Labels "orb-test.literal" }}' test-image-extra-args:test-tag)
+            if [ "${literal}" != '$(touch pwned) x' ] || [ -e pwned ]; then
+              echo "ERROR: expected label orb-test.literal='\$(touch pwned) x' and no file pwned, got '${literal}'"
+              exit 1
+            fi
+            echo "extra_args were passed through and expanded, and nothing in them ran."
       # build_args is split on spaces and newlines, one --build-arg per pair.
       - run:
           name: Create build_args test Dockerfile

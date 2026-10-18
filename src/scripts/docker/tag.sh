@@ -8,7 +8,7 @@ IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -25,17 +25,17 @@ fi
 
 # Validate required parameters
 if [ -z "${SOURCE_IMAGE}" ]; then
-    echo "ERROR: source_image parameter is required."
+    echo "ERROR: source_image parameter is required." >&2
     exit 1
 fi
 
 if [ -z "${TARGET_IMAGE}" ]; then
-    echo "ERROR: target_image parameter is required."
+    echo "ERROR: target_image parameter is required." >&2
     exit 1
 fi
 
 if [ -z "${TAGS}" ]; then
-    echo "ERROR: tags parameter is required."
+    echo "ERROR: tags parameter is required." >&2
     exit 1
 fi
 
@@ -47,17 +47,19 @@ echo ""
 
 # Verify source image exists
 if ! docker image inspect "${SOURCE_IMAGE}" > /dev/null 2>&1; then
-    echo "ERROR: Source image not found: ${SOURCE_IMAGE}"
-    echo ""
-    echo "Available images:"
-    docker images --format "  {{.Repository}}:{{.Tag}}"
+    echo "ERROR: Source image not found: ${SOURCE_IMAGE}" >&2
+    echo "" >&2
+    echo "Available images:" >&2
+    docker images --format "  {{.Repository}}:{{.Tag}}" >&2
     exit 1
 fi
 
 # Parse tags and apply each one
 FIRST_TAG=""
 IFS=' ' read -ra TAG_ARRAY <<< "${TAGS}"
-for TAG in "${TAG_ARRAY[@]}"; do
+# Empty when the first line of tags is blank or only spaces. Bash before 4.4
+# treats an empty array as unset under set -u, so expand it only when set.
+for TAG in ${TAG_ARRAY[@]+"${TAG_ARRAY[@]}"}; do
     # Skip empty tags
     if [ -z "${TAG}" ]; then
         continue
@@ -78,7 +80,7 @@ echo "Successfully tagged image with ${#TAG_ARRAY[@]} tag(s)."
 
 # Export tagged image info to BASH_ENV for subsequent steps
 {
-    echo "export TAGGED_IMAGE='${TARGET_IMAGE}'"
-    echo "export TAGGED_IMAGE_TAG='${FIRST_TAG}'"
-    echo "export TAGGED_IMAGE_FULL='${TARGET_IMAGE}:${FIRST_TAG}'"
+    printf 'export %s=%q\n' TAGGED_IMAGE "${TARGET_IMAGE}"
+    printf 'export %s=%q\n' TAGGED_IMAGE_TAG "${FIRST_TAG}"
+    printf 'export %s=%q\n' TAGGED_IMAGE_FULL "${TARGET_IMAGE}:${FIRST_TAG}"
 } >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true

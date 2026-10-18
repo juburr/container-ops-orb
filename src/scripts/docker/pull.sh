@@ -5,12 +5,12 @@
 # Pull failures are treated as warnings since images may exist locally.
 # The images parameter is split on whitespace (spaces, tabs or newlines).
 
-set -uo pipefail
+set -euo pipefail
 IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -38,16 +38,17 @@ echo ""
 PULL_SUCCESS=0
 PULL_FAILED=0
 
-# Pull each image
+# Pull each image. A failed pull is handled by the if, so it does not stop
+# the loop under set -e.
 for image in "${IMAGE_ARRAY[@]}"; do
     echo "Pulling: ${image}"
     if docker pull "${image}"; then
         echo "  Success: ${image}"
-        ((PULL_SUCCESS++))
+        PULL_SUCCESS=$((PULL_SUCCESS + 1))
     else
-        echo "  WARNING: Failed to pull ${image}"
-        echo "  This may be expected if the image only exists locally."
-        ((PULL_FAILED++))
+        echo "WARN: Failed to pull ${image}" >&2
+        echo "  This may be expected if the image only exists locally." >&2
+        PULL_FAILED=$((PULL_FAILED + 1))
     fi
     echo ""
 done

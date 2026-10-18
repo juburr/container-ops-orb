@@ -11,7 +11,7 @@ IFS=$'\n\t'
 REQUIRED_COMMANDS=("docker")
 for CMD in "${REQUIRED_COMMANDS[@]}"; do
     if ! command -v "$CMD" > /dev/null; then
-        echo "FATAL: Command '$CMD' is required but not installed."
+        echo "ERROR: Command '$CMD' is required but not installed." >&2
         exit 1
     fi
 done
@@ -46,7 +46,7 @@ PULL="${PARAM_PULL:-false}"
 
 # Validate required parameters
 if [ -z "${IMAGE}" ]; then
-    echo "ERROR: image parameter is required."
+    echo "ERROR: image parameter is required." >&2
     exit 1
 fi
 
@@ -54,7 +54,7 @@ fi
 IFS=' ' read -ra TAG_ARRAY <<< "${TAGS}"
 
 if [ ${#TAG_ARRAY[@]} -eq 0 ]; then
-    echo "ERROR: At least one tag is required."
+    echo "ERROR: At least one tag is required." >&2
     exit 1
 fi
 
@@ -73,11 +73,11 @@ fi
 # Check that the Dockerfile exists where docker build -f looks for it: a
 # relative path is resolved against the working directory, not the context.
 if [ ! -f "${DOCKERFILE}" ]; then
-    echo "ERROR: Dockerfile not found at ${DOCKERFILE} (working directory: $(pwd))"
+    echo "ERROR: Dockerfile not found at ${DOCKERFILE} (working directory: $(pwd))" >&2
     if [ -f "${BUILD_CONTEXT}/${DOCKERFILE}" ]; then
-        echo "  ${BUILD_CONTEXT}/${DOCKERFILE} exists, but docker build resolves a relative"
-        echo "  dockerfile against the working directory, not build_context."
-        echo "  Set dockerfile to ${BUILD_CONTEXT}/${DOCKERFILE} to use it."
+        echo "  ${BUILD_CONTEXT}/${DOCKERFILE} exists, but docker build resolves a relative" >&2
+        echo "  dockerfile against the working directory, not build_context." >&2
+        echo "  Set dockerfile to ${BUILD_CONTEXT}/${DOCKERFILE} to use it." >&2
     fi
     exit 1
 fi
@@ -159,14 +159,127 @@ fi
 # end of its input, which is expected here.
 BUILD_ARG_ARRAY=()
 IFS=$' \t\n' read -r -d '' -a BUILD_ARG_ARRAY <<< "${BUILD_ARGS}" || true
-for arg in "${BUILD_ARG_ARRAY[@]}"; do
+# Empty without build_args. Bash before 4.4 treats an empty array as unset
+# under set -u, so it is expanded only when it has elements.
+for arg in ${BUILD_ARG_ARRAY[@]+"${BUILD_ARG_ARRAY[@]}"}; do
     BUILD_CMD+=("--build-arg" "${arg}")
 done
 
-# Add extra args (split on spaces, respecting quotes)
-if [ -n "${EXTRA_ARGS}" ]; then
-    eval "BUILD_CMD+=(${EXTRA_ARGS})"
-fi
+# split_shell_words STRING: splits STRING into the SHELL_WORDS array the way
+# the shell splits a command line into words, but expands and executes
+# nothing. Single quotes keep everything literal. Inside double quotes a
+# backslash escapes only ", \, $, ` and newline, as in bash. Outside quotes a
+# backslash escapes the next character, and a backslash-newline joins lines.
+# A # that starts a word starts a comment, which runs to the end of the line.
+# Spaces, tabs and newlines separate words, and '' is an empty word. Returns 1
+# if a quote is never closed, 2 if the input ends in a backslash outside
+# quotes (which escapes nothing), 3 for bash's $'...' or $"..." quoting, which
+# it does not implement, 4 for a $(...) or backtick outside quotes, which it
+# would not run, and 5 for a shell operator (| & ; < > ( )) outside quotes,
+# such as a redirection or a <(...) process substitution.
+split_shell_words() {
+    local input=$1 word="" in_word=false quote="" char next i
+    SHELL_WORDS=()
+    for ((i = 0; i < ${#input}; i++)); do
+        char=${input:i:1}
+        if [[ "${quote}" == "'" ]]; then
+            if [[ "${char}" == "'" ]]; then quote=""; else word+=${char}; fi
+        elif [[ "${quote}" == '"' ]]; then
+            if [[ "${char}" == '"' ]]; then
+                quote=""
+            elif [[ "${char}" == "\\" ]] && ((i + 1 < ${#input})); then
+                next=${input:i+1:1}
+                case "${next}" in
+                    '"' | "\\" | '$' | '`') word+=${next}; i=$((i + 1)) ;;
+                    $'\n') i=$((i + 1)) ;;
+                    *) word+=${char} ;;
+                esac
+            else
+                word+=${char}
+            fi
+        else
+            case "${char}" in
+                ' ' | $'\t' | $'\n')
+                    if [[ "${in_word}" == true ]]; then
+                        SHELL_WORDS+=("${word}")
+                        word=""
+                        in_word=false
+                    fi
+                    ;;
+                "'" | '"') quote=${char}; in_word=true ;;
+                "#")
+                    if [[ "${in_word}" == true ]]; then
+                        word+=${char}
+                    else
+                        while ((i + 1 < ${#input})) && [[ "${input:i+1:1}" != $'\n' ]]; do
+                            i=$((i + 1))
+                        done
+                    fi
+                    ;;
+                "\\")
+                    ((i + 1 < ${#input})) || return 2
+                    i=$((i + 1))
+                    if [[ "${input:i:1}" != $'\n' ]]; then
+                        word+=${input:i:1}
+                        in_word=true
+                    fi
+                    ;;
+                '$')
+                    case "${input:i+1:1}" in
+                        "'" | '"') return 3 ;;
+                        "(") return 4 ;;
+                    esac
+                    word+=${char}
+                    in_word=true
+                    ;;
+                '`') return 4 ;;
+                '|' | '&' | ';' | '<' | '>' | '(' | ')') return 5 ;;
+                *) word+=${char}; in_word=true ;;
+            esac
+        fi
+    done
+    [[ -z "${quote}" ]] || return 1
+    if [[ "${in_word}" == true ]]; then
+        SHELL_WORDS+=("${word}")
+    fi
+}
+
+# Add extra args, split like shell words. Nothing in them is expanded or
+# executed: a $(...) or backtick that reached extra_args through an
+# environment variable (a branch name, a commit message) reaches docker as
+# text.
+split_status=0
+split_shell_words "${EXTRA_ARGS}" || split_status=$?
+case "${split_status}" in
+    0) ;;
+    1)
+        echo "ERROR: extra_args could not be split into arguments: it has a quote that is never closed." >&2
+        echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it." >&2
+        exit 1
+        ;;
+    2)
+        echo "ERROR: extra_args could not be split into arguments: it ends in a backslash." >&2
+        echo "  A literal \\ at the end needs another \\ before it." >&2
+        exit 1
+        ;;
+    3)
+        echo "ERROR: extra_args could not be split into arguments: \$'...' and \$\"...\" quoting is not supported." >&2
+        echo "  Use '...' or \"...\" instead." >&2
+        exit 1
+        ;;
+    4)
+        echo "ERROR: extra_args could not be split into arguments: it has a \$(...) or backtick outside quotes." >&2
+        echo "  extra_args is not run as shell code, so the command would not run. Quote it to pass it to docker as text." >&2
+        exit 1
+        ;;
+    *)
+        echo "ERROR: extra_args could not be split into arguments: it has one of | & ; < > ( ) outside quotes." >&2
+        echo "  extra_args is not run as shell code, so pipes, redirections and <(...) would not work. Quote it to pass it to docker as text." >&2
+        exit 1
+        ;;
+esac
+# Empty without extra_args (bash before 4.4 treats that as unset under set -u).
+BUILD_CMD+=(${SHELL_WORDS[@]+"${SHELL_WORDS[@]}"})
 
 # Add build context as last argument
 BUILD_CMD+=("${BUILD_CONTEXT}")
@@ -186,6 +299,6 @@ done
 
 # Export the primary tag (first in list) for subsequent steps
 PRIMARY_TAG="${TAG_ARRAY[0]}"
-echo "export BUILT_IMAGE='${IMAGE}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
-echo "export BUILT_IMAGE_TAG='${PRIMARY_TAG}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
-echo "export BUILT_IMAGE_FULL='${IMAGE}:${PRIMARY_TAG}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' BUILT_IMAGE "${IMAGE}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' BUILT_IMAGE_TAG "${PRIMARY_TAG}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' BUILT_IMAGE_FULL "${IMAGE}:${PRIMARY_TAG}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true

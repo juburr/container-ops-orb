@@ -32,10 +32,10 @@ else
 fi
 
 if [ -z "${SBOM_FILE}" ]; then
-    echo "ERROR: No SBOM file found in sboms/ directory"
-    echo ""
-    echo "Available files in sboms/:"
-    ls -la sboms/ 2>/dev/null || echo "  (directory does not exist)"
+    echo "ERROR: No SBOM file found in sboms/ directory" >&2
+    echo "" >&2
+    echo "Available files in sboms/:" >&2
+    { ls -la sboms/ 2>/dev/null || echo "  (directory does not exist)"; } >&2
     exit 1
 fi
 
@@ -44,8 +44,8 @@ echo "  Predicate Type: ${PREDICATE_TYPE}"
 
 # Export for subsequent cosign/attest command
 {
-    echo "export SBOM_FILE='${SBOM_FILE}'"
-    echo "export PREDICATE_TYPE='${PREDICATE_TYPE}'"
+    printf 'export %s=%q\n' SBOM_FILE "${SBOM_FILE}"
+    printf 'export %s=%q\n' PREDICATE_TYPE "${PREDICATE_TYPE}"
 } >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
 
 echo ""

@@ -8,7 +8,7 @@ IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -53,13 +53,13 @@ if [ "${PERSIST_TO_WORKSPACE}" = "true" ] || [ "${PERSIST_TO_WORKSPACE}" = "1" ]
         PERSISTED_DIR="${WORKSPACE_ROOT}/images"
     fi
     if [ "${ARCHIVE_DIR_REAL}" != "${PERSISTED_DIR}" ]; then
-        echo "ERROR: persist_to_workspace is true, but archive_dir is not <workspace_root>/images."
-        echo "  archive_dir:    ${ARCHIVE_DIR} (resolves to ${ARCHIVE_DIR_REAL})"
-        echo "  workspace_root: ${WORKSPACE_ROOT}"
-        echo "  persisted:      ${PERSISTED_DIR}"
-        echo "The workspace step persists only the directory 'images' under workspace_root."
-        echo "Set archive_dir to <workspace_root>/images, or set persist_to_workspace to"
-        echo "false and persist the archive with your own persist_to_workspace step."
+        echo "ERROR: persist_to_workspace is true, but archive_dir is not <workspace_root>/images." >&2
+        echo "  archive_dir:    ${ARCHIVE_DIR} (resolves to ${ARCHIVE_DIR_REAL})" >&2
+        echo "  workspace_root: ${WORKSPACE_ROOT}" >&2
+        echo "  persisted:      ${PERSISTED_DIR}" >&2
+        echo "The workspace step persists only the directory 'images' under workspace_root." >&2
+        echo "Set archive_dir to <workspace_root>/images, or set persist_to_workspace to" >&2
+        echo "false and persist the archive with your own persist_to_workspace step." >&2
         exit 1
     fi
 fi
@@ -73,7 +73,7 @@ echo "  Output: ${ARCHIVE_FILE}"
 
 # Verify image exists
 if ! docker image inspect "${FULL_IMAGE}" > /dev/null 2>&1; then
-    echo "ERROR: Image '${FULL_IMAGE}' not found."
+    echo "ERROR: Image '${FULL_IMAGE}' not found." >&2
     exit 1
 fi
 
@@ -82,7 +82,7 @@ docker save -o "${ARCHIVE_FILE}" "${FULL_IMAGE}"
 
 # Verify archive was created
 if [ ! -f "${ARCHIVE_FILE}" ]; then
-    echo "ERROR: Archive file was not created."
+    echo "ERROR: Archive file was not created." >&2
     exit 1
 fi
 
@@ -95,5 +95,5 @@ echo "  File: ${ARCHIVE_FILE}"
 echo "  Size: ${ARCHIVE_SIZE}"
 
 # Export path for subsequent steps
-echo "export ARCHIVED_IMAGE_PATH='${ARCHIVE_FILE}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
-echo "export ARCHIVED_IMAGE_NAME='${SAFE_NAME}'" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' ARCHIVED_IMAGE_PATH "${ARCHIVE_FILE}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true
+printf 'export %s=%q\n' ARCHIVED_IMAGE_NAME "${SAFE_NAME}" >> "${BASH_ENV:-/dev/null}" 2>/dev/null || true

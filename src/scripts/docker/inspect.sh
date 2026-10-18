@@ -8,7 +8,7 @@ IFS=$'\n\t'
 
 # Check for required commands
 if ! command -v docker > /dev/null; then
-    echo "FATAL: Command 'docker' is required but not installed."
+    echo "ERROR: Command 'docker' is required but not installed." >&2
     exit 1
 fi
 
@@ -33,7 +33,7 @@ echo ""
 
 # Check if image exists
 if ! docker image inspect "${FULL_IMAGE}" > /dev/null 2>&1; then
-    echo "ERROR: Image '${FULL_IMAGE}' not found."
+    echo "ERROR: Image '${FULL_IMAGE}' not found." >&2
     exit 1
 fi
 
@@ -72,6 +72,9 @@ docker image inspect "${FULL_IMAGE}" --format '{{.Config.Cmd}}'
 
 echo ""
 echo "=== Full JSON (truncated) ==="
-docker image inspect "${FULL_IMAGE}" | head -100
+# A here-string, not a pipe: under pipefail, docker killed by SIGPIPE when head
+# exits early on long output would fail the step.
+INSPECT_JSON=$(docker image inspect "${FULL_IMAGE}")
+head -100 <<< "${INSPECT_JSON}"
 echo "..."
 echo "(Output truncated for readability)"
