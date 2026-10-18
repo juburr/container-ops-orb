@@ -163,22 +163,75 @@ for arg in "${BUILD_ARG_ARRAY[@]}"; do
     BUILD_CMD+=("--build-arg" "${arg}")
 done
 
-# Add extra args, split like shell words: quotes keep a value with spaces
-# together and a backslash outside quotes escapes the next character. Nothing
-# is expanded or executed: a $(...) or backtick that reached extra_args through
-# an environment variable (a branch name, a commit message) reaches docker as
-# text. xargs splits the words; -r adds nothing for empty or whitespace-only
-# input. mapfile can't see the exit status of the process substitution it
-# reads, so a first pass checks that xargs can split the value (it fails on an
-# unmatched quote) before docker runs.
-if ! printf '%s' "${EXTRA_ARGS}" | xargs -r printf '%s\0' > /dev/null; then
-    echo "ERROR: extra_args could not be split into arguments: ${EXTRA_ARGS}" >&2
-    echo "  Check it for a quote that is not closed on the same line. A literal ' or \" needs a backslash before it." >&2
+# split_shell_words STRING: splits STRING into the SHELL_WORDS array the way
+# the shell splits a command line into words, but expands and executes
+# nothing. Single quotes keep everything literal. Inside double quotes a
+# backslash escapes only ", \, $, ` and newline, as in bash. Outside quotes a
+# backslash escapes the next character, and a backslash-newline joins lines.
+# Spaces, tabs and newlines separate words, and '' is an empty word. Returns 1
+# if a quote is never closed.
+split_shell_words() {
+    local input=$1 word="" in_word=false quote="" char next i
+    SHELL_WORDS=()
+    for ((i = 0; i < ${#input}; i++)); do
+        char=${input:i:1}
+        if [[ "${quote}" == "'" ]]; then
+            if [[ "${char}" == "'" ]]; then quote=""; else word+=${char}; fi
+        elif [[ "${quote}" == '"' ]]; then
+            if [[ "${char}" == '"' ]]; then
+                quote=""
+            elif [[ "${char}" == "\\" ]] && ((i + 1 < ${#input})); then
+                next=${input:i+1:1}
+                case "${next}" in
+                    '"' | "\\" | '$' | '`') word+=${next}; i=$((i + 1)) ;;
+                    $'\n') i=$((i + 1)) ;;
+                    *) word+=${char} ;;
+                esac
+            else
+                word+=${char}
+            fi
+        else
+            case "${char}" in
+                ' ' | $'\t' | $'\n')
+                    if [[ "${in_word}" == true ]]; then
+                        SHELL_WORDS+=("${word}")
+                        word=""
+                        in_word=false
+                    fi
+                    ;;
+                "'" | '"') quote=${char}; in_word=true ;;
+                "\\")
+                    if ((i + 1 < ${#input})); then
+                        i=$((i + 1))
+                        if [[ "${input:i:1}" != $'\n' ]]; then
+                            word+=${input:i:1}
+                            in_word=true
+                        fi
+                    else
+                        word+=${char}
+                        in_word=true
+                    fi
+                    ;;
+                *) word+=${char}; in_word=true ;;
+            esac
+        fi
+    done
+    [[ -z "${quote}" ]] || return 1
+    if [[ "${in_word}" == true ]]; then
+        SHELL_WORDS+=("${word}")
+    fi
+}
+
+# Add extra args, split like shell words. Nothing in them is expanded or
+# executed: a $(...) or backtick that reached extra_args through an
+# environment variable (a branch name, a commit message) reaches docker as
+# text.
+if ! split_shell_words "${EXTRA_ARGS}"; then
+    echo "ERROR: extra_args could not be split into arguments: it has a quote that is never closed." >&2
+    echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it." >&2
     exit 1
 fi
-EXTRA_ARG_ARRAY=()
-mapfile -d '' -t EXTRA_ARG_ARRAY < <(printf '%s' "${EXTRA_ARGS}" | xargs -r printf '%s\0')
-BUILD_CMD+=("${EXTRA_ARG_ARRAY[@]}")
+BUILD_CMD+=("${SHELL_WORDS[@]}")
 
 # Add build context as last argument
 BUILD_CMD+=("${BUILD_CONTEXT}")

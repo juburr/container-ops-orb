@@ -181,6 +181,19 @@ else
     fail "extra_args split (status ${STATUS}, work: $(ls "${TMP}/work")): $(tr '\n' ' ' < "${DOCKER_LOG}")"
 fi
 
+# A quoted value may span lines, and double quotes follow the shell's
+# backslash rules; '' is an empty argument.
+build_env
+PARAM_EXTRA_ARGS=$'--label "description=line one\nline two" --label "q=a\\"b\\\\c" --build-arg \'\' --label x=\'it\'"\'"\'s\''
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -eq 0 ]] \
+    && docker_args_contain -t app:t2 --label $'description=line one\nline two' --label 'q=a"b\c' \
+        --build-arg '' --label "x=it's" . --end--; then
+    pass "extra_args keep quoted newlines, backslash escapes in double quotes and empty arguments"
+else
+    fail "extra_args shell quoting (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}")"
+fi
+
 build_env
 PARAM_EXTRA_ARGS="--no-cache --label 'a=b"
 build_in_work 'touch Dockerfile'
