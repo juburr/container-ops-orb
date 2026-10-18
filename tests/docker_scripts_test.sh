@@ -222,6 +222,33 @@ else
     fail "extra_args comments (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
 fi
 
+# Bash's $'...' and $"..." quoting is not implemented, so it fails rather
+# than reaching docker with a literal $. A $ in quotes, or before anything
+# but a quote, is text.
+for value in "--label \$'a b'" '--label $"a b"' "--label x\$'y'"; do
+    build_env
+    PARAM_EXTRA_ARGS=${value}
+    build_in_work 'touch Dockerfile'
+    label=$(printf '%q' "${value}")
+    if [[ "${STATUS}" -ne 0 ]] && [[ ! -s "${DOCKER_LOG}" ]] \
+        && [[ "${OUTPUT}" == *"ERROR: extra_args could not be split into arguments"*"quoting is not supported"* ]]; then
+        pass "extra_args with ANSI-C or locale quoting (${label}) fails before docker runs"
+    else
+        fail "extra_args with ANSI-C or locale quoting (${label}) should fail (status ${STATUS}): ${OUTPUT}"
+    fi
+done
+
+build_env
+PARAM_EXTRA_ARGS="--label \"a\$'b'\" --label 'c\$\"d\"' --label e\$"
+build_in_work 'touch Dockerfile'
+# shellcheck disable=SC2016 # the $ is expected verbatim
+if [[ "${STATUS}" -eq 0 ]] \
+    && docker_args_contain -t app:t2 --label "a\$'b'" --label 'c$"d"' --label 'e$' . --end--; then
+    pass "a \$ in quotes or before anything but a quote reaches docker as text"
+else
+    fail "extra_args with a literal \$ (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
+fi
+
 build_env
 PARAM_EXTRA_ARGS="--no-cache --label 'a=b"
 build_in_work 'touch Dockerfile'

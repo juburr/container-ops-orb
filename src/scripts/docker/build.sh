@@ -172,8 +172,9 @@ done
 # backslash escapes the next character, and a backslash-newline joins lines.
 # A # that starts a word starts a comment, which runs to the end of the line.
 # Spaces, tabs and newlines separate words, and '' is an empty word. Returns 1
-# if a quote is never closed or the input ends in a backslash outside quotes,
-# which escapes nothing.
+# if a quote is never closed, 2 if the input ends in a backslash outside
+# quotes (which escapes nothing), and 3 for bash's $'...' or $"..." quoting,
+# which it does not implement.
 split_shell_words() {
     local input=$1 word="" in_word=false quote="" char next i
     SHELL_WORDS=()
@@ -214,12 +215,19 @@ split_shell_words() {
                     fi
                     ;;
                 "\\")
-                    ((i + 1 < ${#input})) || return 1
+                    ((i + 1 < ${#input})) || return 2
                     i=$((i + 1))
                     if [[ "${input:i:1}" != $'\n' ]]; then
                         word+=${input:i:1}
                         in_word=true
                     fi
+                    ;;
+                '$')
+                    if [[ "${input:i+1:1}" == "'" || "${input:i+1:1}" == '"' ]]; then
+                        return 3
+                    fi
+                    word+=${char}
+                    in_word=true
                     ;;
                 *) word+=${char}; in_word=true ;;
             esac
@@ -235,11 +243,26 @@ split_shell_words() {
 # executed: a $(...) or backtick that reached extra_args through an
 # environment variable (a branch name, a commit message) reaches docker as
 # text.
-if ! split_shell_words "${EXTRA_ARGS}"; then
-    echo "ERROR: extra_args could not be split into arguments: it has a quote that is never closed, or ends in a backslash." >&2
-    echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it, and a final \\ needs another \\." >&2
-    exit 1
-fi
+split_status=0
+split_shell_words "${EXTRA_ARGS}" || split_status=$?
+case "${split_status}" in
+    0) ;;
+    1)
+        echo "ERROR: extra_args could not be split into arguments: it has a quote that is never closed." >&2
+        echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it." >&2
+        exit 1
+        ;;
+    2)
+        echo "ERROR: extra_args could not be split into arguments: it ends in a backslash." >&2
+        echo "  A literal \\ at the end needs another \\ before it." >&2
+        exit 1
+        ;;
+    *)
+        echo "ERROR: extra_args could not be split into arguments: \$'...' and \$\"...\" quoting is not supported." >&2
+        echo "  Use '...' or \"...\" instead." >&2
+        exit 1
+        ;;
+esac
 # Empty without extra_args (bash before 4.4 treats that as unset under set -u).
 BUILD_CMD+=(${SHELL_WORDS[@]+"${SHELL_WORDS[@]}"})
 
