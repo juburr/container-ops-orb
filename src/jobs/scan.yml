@@ -20,6 +20,8 @@ parameters:
       The executor to use for the scan job. Defaults to this orb's machine
       executor, a Linux VM with Docker pre-installed for native Docker
       support.
+      To change its image or resource class, pass them to it, for example
+      executor: {name: container-ops-orb/machine, resource_class: large}.
 
   # === IMAGE CONFIGURATION ===
   image:

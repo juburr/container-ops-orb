@@ -25,6 +25,8 @@ parameters:
       executor, a Linux VM with Docker pre-installed. A machine executor is
       recommended as it provides native Docker support without requiring
       setup_remote_docker.
+      To change its image or resource class, pass them to it, for example
+      executor: {name: container-ops-orb/machine, resource_class: large}.
 
   # === IMAGE CONFIGURATION ===
   image:
