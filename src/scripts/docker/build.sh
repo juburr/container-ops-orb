@@ -171,7 +171,8 @@ done
 # backslash escapes only ", \, $, ` and newline, as in bash. Outside quotes a
 # backslash escapes the next character, and a backslash-newline joins lines.
 # Spaces, tabs and newlines separate words, and '' is an empty word. Returns 1
-# if a quote is never closed.
+# if a quote is never closed or the input ends in a backslash outside quotes,
+# which escapes nothing.
 split_shell_words() {
     local input=$1 word="" in_word=false quote="" char next i
     SHELL_WORDS=()
@@ -203,14 +204,10 @@ split_shell_words() {
                     ;;
                 "'" | '"') quote=${char}; in_word=true ;;
                 "\\")
-                    if ((i + 1 < ${#input})); then
-                        i=$((i + 1))
-                        if [[ "${input:i:1}" != $'\n' ]]; then
-                            word+=${input:i:1}
-                            in_word=true
-                        fi
-                    else
-                        word+=${char}
+                    ((i + 1 < ${#input})) || return 1
+                    i=$((i + 1))
+                    if [[ "${input:i:1}" != $'\n' ]]; then
+                        word+=${input:i:1}
                         in_word=true
                     fi
                     ;;
@@ -229,8 +226,8 @@ split_shell_words() {
 # environment variable (a branch name, a commit message) reaches docker as
 # text.
 if ! split_shell_words "${EXTRA_ARGS}"; then
-    echo "ERROR: extra_args could not be split into arguments: it has a quote that is never closed." >&2
-    echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it." >&2
+    echo "ERROR: extra_args could not be split into arguments: it has a quote that is never closed, or ends in a backslash." >&2
+    echo "  A literal ' or \" needs a backslash before it, or quotes of the other kind around it, and a final \\ needs another \\." >&2
     exit 1
 fi
 # Empty without extra_args (bash before 4.4 treats that as unset under set -u).

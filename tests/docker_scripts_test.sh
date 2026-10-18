@@ -219,6 +219,32 @@ else
     fail "extra_args with an unmatched quote should fail (status ${STATUS}): ${OUTPUT}"
 fi
 
+# A backslash that ends extra_args escapes nothing (eval of the old
+# BUILD_CMD+=(...) failed on it too), so it fails rather than reaching docker.
+# That includes a final backslash-newline: the $(...) that reads extra_args
+# drops the newline. A backslash-newline between lines joins them as usual.
+for value in "--label a=b\\" "--no-cache \\" $'--no-cache \\\n'; do
+    build_env
+    PARAM_EXTRA_ARGS=${value}
+    build_in_work 'touch Dockerfile'
+    label=$(printf '%q' "${value}")
+    if [[ "${STATUS}" -ne 0 ]] && [[ ! -s "${DOCKER_LOG}" ]] \
+        && [[ "${OUTPUT}" == *"ERROR: extra_args could not be split into arguments"* ]]; then
+        pass "extra_args ending in a backslash (${label}) fails before docker runs"
+    else
+        fail "extra_args ending in a backslash (${label}) should fail (status ${STATUS}): ${OUTPUT}"
+    fi
+done
+
+build_env
+PARAM_EXTRA_ARGS=$'--no-cache \\\n--pull\n'
+build_in_work 'touch Dockerfile'
+if [[ "${STATUS}" -eq 0 ]] && docker_args_contain -t app:t2 --no-cache --pull . --end--; then
+    pass "extra_args lines joined by a backslash-newline reach docker"
+else
+    fail "extra_args with backslash-newlines (status ${STATUS}): $(tr '\n' ' ' < "${DOCKER_LOG}") ${OUTPUT}"
+fi
+
 build_env
 PARAM_EXTRA_ARGS=$' \t\n '
 build_in_work 'touch Dockerfile'
