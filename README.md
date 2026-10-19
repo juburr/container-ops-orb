@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logos/container-ops-orb-256px.png" width="256" alt="Container Ops Orb logo: a round badge showing a container port at night, with a crane lifting a shipping container, a robotic arm, a launching rocket and a glowing ring at the center">
+<img src="assets/logos/container-ops-orb-512px.png" width="256" alt="Container Ops Orb logo: a round badge showing a container port at night, with a crane lifting a shipping container, a robotic arm, a launching rocket and a glowing ring at the center">
 
 # Container Ops Orb for CircleCI
 
@@ -671,6 +671,10 @@ This is a community-maintained orb, and contributions are welcome! Bug reports, 
   circleci orb pack src > orb.yml && circleci orb validate orb.yml
   ```
 
+## 🎨 Logo
+
+Need the logo for a slide deck, blog post, or internal developer portal? PNGs with transparent backgrounds are in [`assets/logos`](assets/logos): [64](assets/logos/container-ops-orb-64px.png) · [128](assets/logos/container-ops-orb-128px.png) · [256](assets/logos/container-ops-orb-256px.png) · [512](assets/logos/container-ops-orb-512px.png) · [1024](assets/logos/container-ops-orb-1024px.png) px
+
 ## 📜 License
 
 [MIT](LICENSE) © 2026 Justin Burr
@@ -678,7 +682,7 @@ This is a community-maintained orb, and contributions are welcome! Bug reports, 
 <br>
 
 <div align="center">
-  <img src="assets/logos/container-ops-orb-256px.png" width="64" alt="Container Ops Orb logo">
+  <img src="assets/logos/container-ops-orb-128px.png" width="64" alt="Container Ops Orb logo">
   <br>
   <sub>Build it once, scan it, sign it, ship it. If this orb helps your team, a ⭐ helps others find it.</sub>
   <br>
