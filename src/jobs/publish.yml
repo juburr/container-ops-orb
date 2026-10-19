@@ -90,7 +90,9 @@ parameters:
     default: true
     description: |
       Attach a workspace from a previous job to access the archived image.
-      Set to false if the image is already available locally.
+      Set to false when the archive reaches archive_dir another way, for
+      example from a before_publish step: the job always loads the image
+      from archive_dir.
 
   attach_workspace_at:
     type: string
@@ -143,9 +145,22 @@ parameters:
 
   cosign_version:
     type: string
-    default: "2.4.0"
+    default: "3.1.3"
     description: |
       Version of Cosign to install for signing operations.
+
+  cosign_bundle_format:
+    type: enum
+    enum: ["auto", "bundle", "legacy"]
+    default: "auto"
+    description: |
+      How signatures and attestations are stored in the registry, passed to
+      the cosign orb's sign, verify, attest and verify_attestation commands.
+      - auto: Cosign's own default: Sigstore bundles stored as OCI referrers
+        for Cosign 3, legacy for Cosign 1 and 2
+      - bundle: Sigstore bundles (Cosign 2.6.0 or later)
+      - legacy: sha256-<hex>.sig and .att tags next to the image, which
+        verifiers on older Cosign versions read
 
   cosign_private_key:
     type: env_var_name
@@ -187,13 +202,14 @@ parameters:
     enum: ["spdx-json", "cyclonedx-json"]
     default: "spdx-json"
     description: |
-      Output format for the generated SBOM.
-      - spdx-json: SPDX 2.3 JSON format
-      - cyclonedx-json: CycloneDX 1.4 JSON format
+      Output format for the generated SBOM, in the spec version Syft writes
+      by default.
+      - spdx-json: SPDX JSON
+      - cyclonedx-json: CycloneDX JSON
 
   syft_version:
     type: string
-    default: "1.11.0"
+    default: "1.52.0"
     description: |
       Version of Syft to install for SBOM generation.
 
@@ -270,7 +286,7 @@ steps:
         - tagger/push:
             target_image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>
             tags_file: << parameters.tags_file >>
-        - tagger/populate_tag
+        - tagger/export_tag
 
   # 5b. Tag and push using docker commands (when tags_file is not provided)
   - unless:
@@ -294,17 +310,19 @@ steps:
             caching: true
             verify_checksums: << parameters.verify_checksums >>
         # 6b. Sign image
-        - cosign/sign_image:
+        - cosign/sign:
             image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
             private_key: << parameters.cosign_private_key >>
             password: << parameters.cosign_password >>
+            bundle_format: << parameters.cosign_bundle_format >>
         # 6c. Verify signature (conditional)
         - when:
             condition: << parameters.verify_signature >>
             steps:
-              - cosign/verify_image:
+              - cosign/verify:
                   image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
                   public_key: << parameters.cosign_public_key >>
+                  bundle_format: << parameters.cosign_bundle_format >>
 
   # 7. SBOM generation with Syft (conditional)
   - when:
@@ -351,6 +369,7 @@ steps:
             predicate_type: ${PREDICATE_TYPE}
             private_key: << parameters.cosign_private_key >>
             password: << parameters.cosign_password >>
+            bundle_format: << parameters.cosign_bundle_format >>
         # 8b. Verify attestation (conditional)
         - when:
             condition: << parameters.verify_attestation >>
@@ -359,6 +378,7 @@ steps:
                   image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
                   predicate_type: ${PREDICATE_TYPE}
                   public_key: << parameters.cosign_public_key >>
+                  bundle_format: << parameters.cosign_bundle_format >>
 
   # 9. After-publish hook (user customization)
   - steps: << parameters.after_publish >>
