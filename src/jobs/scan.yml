@@ -96,7 +96,7 @@ parameters:
   # === GRYPE CONFIGURATION ===
   grype_version:
     type: string
-    default: "0.87.0"
+    default: "0.119.0"
     description: |
       Version of Grype to install for scanning.
 
@@ -129,11 +129,11 @@ parameters:
 
   fail_on:
     type: enum
-    enum: ["", "negligible", "low", "medium", "high", "critical"]
-    default: ""
+    enum: ["critical", "high", "medium", "low", "negligible", "never"]
+    default: "never"
     description: |
       Fail the job if vulnerabilities at or above this severity are found.
-      Leave empty to never fail based on vulnerabilities.
+      The default, never, reports vulnerabilities without failing the job.
       Severity levels from lowest to highest:
       negligible < low < medium < high < critical
 
@@ -239,8 +239,6 @@ steps:
       caching: true
       verify_checksums: << parameters.verify_checksums >>
 
-  - grype/log_version
-
   - grype/update_database:
       caching: true
 
@@ -259,10 +257,9 @@ steps:
       command: << include(scripts/grype/prepare_scan.sh) >>
 
   # 8. Execute Grype scan
-  - grype/scan_image:
-      image: ${SCAN_TARGET}
-      output_file: ${SCAN_OUTPUT_FILE}
-      output_format: << parameters.output_format >>
+  - grype/scan:
+      source: ${SCAN_TARGET}
+      output: << parameters.output_format >>=${SCAN_OUTPUT_FILE}
       fail_on: << parameters.fail_on >>
 
   # 9. Log scan results (conditional)

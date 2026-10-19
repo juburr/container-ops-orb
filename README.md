@@ -101,10 +101,10 @@ flowchart LR
 
 | Step | Orb used | Tool version (default) |
 | --- | --- | --- |
-| `scan` | [`juburr/grype-orb@0.5.0`](https://github.com/juburr/grype-orb) | Grype `0.87.0` (`grype_version`) |
-| `publish` with `sign` (and `attest`) | [`juburr/cosign-orb@0.9.1`](https://github.com/juburr/cosign-orb) | Cosign `2.4.0` (`cosign_version`) |
-| `publish` with `sbom` | [`juburr/syft-orb@0.9.0`](https://github.com/juburr/syft-orb) | Syft `1.11.0` (`syft_version`) |
-| `publish` with `tags_file` | [`juburr/container-tagger-orb@0.7.4`](https://github.com/juburr/container-tagger-orb) | none, uses `docker` |
+| `scan` | [`juburr/grype-orb@1.0.0`](https://github.com/juburr/grype-orb) | Grype `0.119.0` (`grype_version`) |
+| `publish` with `sign` (and `attest`) | [`juburr/cosign-orb@1.0.0`](https://github.com/juburr/cosign-orb) | Cosign `3.1.3` (`cosign_version`) |
+| `publish` with `sbom` | [`juburr/syft-orb@1.0.0`](https://github.com/juburr/syft-orb) | Syft `1.52.0` (`syft_version`) |
+| `publish` with `tags_file` | [`juburr/container-tagger-orb@1.0.0`](https://github.com/juburr/container-tagger-orb) | none, uses `docker` |
 
 ## 🚀 Quick Start
 
@@ -114,7 +114,7 @@ Build the image in your repository's `Dockerfile`, scan it, and push it to your 
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@0.3.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   build-scan-publish:
@@ -140,10 +140,10 @@ workflows:
 Change `image`, `registry` and `registry_namespace`, and create a `registry-credentials` context with `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` (or pass your own variable names to `registry_username` and `registry_password`). Every job runs on the orb's [`machine` executor](#-executors), so there's no Docker setup to add. The image is tagged with the commit SHA, which is how `scan` and `publish` find it, and pushed as `ghcr.io/myorg/myapp:<commit SHA>` and `:latest`. The scan report is printed in the `scan` job's log and persisted to the workspace under `scan-results/`. To sign the image and attach an SBOM, see [Recipes](#-recipes).
 
 > [!TIP]
-> Upgrading from an earlier version? The next release renames a command, the executor and several parameters. See [Upgrading](#-upgrading).
+> Upgrading from an earlier version? v1.0.0 renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. See [Upgrading](#-upgrading).
 
 > [!NOTE]
-> `fail_on` is empty by default, and then the `scan` job never fails on vulnerabilities, only on errors. When `fail_on` does fail the job, the steps after the scan don't run: the report isn't printed or persisted to the workspace. See [Gate on Vulnerabilities and Keep the Report](#gate-on-vulnerabilities-and-keep-the-report).
+> `fail_on` is `never` by default, and then the `scan` job never fails on vulnerabilities, only on errors. When `fail_on` does fail the job, the steps after the scan don't run: the report isn't printed or persisted to the workspace. See [Gate on Vulnerabilities and Keep the Report](#gate-on-vulnerabilities-and-keep-the-report).
 
 > [!IMPORTANT]
 > `publish` is tag-oriented and single-platform. Read [How the Publish Job Works](#-how-the-publish-job-works) before you rely on it for releases.
@@ -158,7 +158,7 @@ Sign the pushed image with a Cosign key pair, generate an SPDX SBOM with Syft, a
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@0.3.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   secure-publish:
@@ -177,18 +177,13 @@ workflows:
           sign: true
           sbom: true
           sbom_format: spdx-json
-          # sbom needs Syft 1.13.0 or later; the default, 1.11.0, fails.
-          syft_version: "1.52.0"
           attest: true
           context:
             - registry-credentials
             - signing-keys
 ```
 
-Signing and attestation use the private key without the public Rekor transparency log, and `verify_signature` and `verify_attestation` (both on by default) check the results with `COSIGN_PUBLIC_KEY`. The SBOM is written to `sboms/` in the job's working directory; add `after_publish: [store_artifacts: {path: sboms}]` to keep it as an artifact. `attest` only runs when `sign` and `sbom` are both true.
-
-> [!WARNING]
-> With the default `syft_version` (`1.11.0`), `sbom: true` fails: the syft orb this orb uses (0.9.0) runs Syft with `--enrich all`, a flag Syft added in 1.13.0. Set `syft_version` to 1.13.0 or later, as above, until the default changes. With the default `verify_checksums: strict`, the version must also be in the syft orb's checksum table; 1.52.0 is that orb's own default.
+Signing and attestation use the private key without the public Rekor transparency log, and `verify_signature` and `verify_attestation` (both on by default) check the results with `COSIGN_PUBLIC_KEY`. With the default Cosign 3, signatures and attestations are stored as Sigstore bundles; set `cosign_bundle_format: legacy` if something that reads them, such as `cosign verify` on Cosign 2.5 or earlier, needs the `.sig` and `.att` tags. The SBOM is written to `sboms/` in the job's working directory; add `after_publish: [store_artifacts: {path: sboms}]` to keep it as an artifact. `attest` only runs when `sign` and `sbom` are both true.
 
 ### Gate on Vulnerabilities and Keep the Report
 
@@ -198,7 +193,7 @@ Signing and attestation use the private key without the public Rekor transparenc
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@0.3.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   secure-build:
@@ -238,7 +233,7 @@ Scan an image that is already in a registry, for example from a scheduled pipeli
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@0.3.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   scan-published:
@@ -265,7 +260,7 @@ Log in to a private registry before building, and pull base images from it witho
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@0.3.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   build-workflow:
@@ -292,8 +287,8 @@ Push release-style tags (`1.2.3`, `1.2`, `1` and `latest` for the newest `v1.2.3
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@0.3.0
-  tagger: juburr/container-tagger-orb@0.7.4
+  container-ops-orb: juburr/container-ops-orb@1.0.0
+  tagger: juburr/container-tagger-orb@1.0.0
 
 workflows:
   release:
@@ -400,7 +395,7 @@ Attaches the workspace, logs in to `registry`, loads the archive `build` saved, 
 | `registry_namespace` | *required* | Namespace or organization path: `myorg` pushes to `ghcr.io/myorg/myapp`. |
 | `tag` | `${CIRCLE_SHA1}` | The tag `build` saved, its first tag (by default the commit SHA). The job retags `<image>:<tag>` for the registry, and signs, inventories (SBOM) and attests `<registry>/<registry_namespace>/<image>:<tag>`. Without `tags_file`, the image is pushed as this tag plus `additional_tags`; with `tags_file`, as the tags in that file. It isn't used for loading: the archive restores the tag saved in it. |
 | `additional_tags` | *(empty)* | More tags to push besides `tag`, separated by spaces, such as `latest v1.0.0`. Not used with `tags_file`. |
-| `tags_file` | *(empty)* | Path to a tags file with one tag per line, such as one generated by [container-tagger-orb](https://github.com/juburr/container-tagger-orb). When set, the job tags and pushes with that orb's `tag` and `push` commands instead of `docker_tag` and `docker_push`, then exports the most specific tag as `TAG` with its `populate_tag` command. |
+| `tags_file` | *(empty)* | Path to a tags file with one tag per line, such as one generated by [container-tagger-orb](https://github.com/juburr/container-tagger-orb). When set, the job tags and pushes with that orb's `tag` and `push` commands instead of `docker_tag` and `docker_push`, then exports the most specific tag as `TAG` with its `export_tag` command. |
 | `registry_username` | `REGISTRY_USERNAME` | Name of the environment variable holding the registry username. |
 | `registry_password` | `REGISTRY_PASSWORD` | Name of the environment variable holding the registry password or access token. |
 | `attach_workspace` | `true` | Attach the workspace to get the archive. Set to false when the archive reaches `archive_dir` another way, for example from a `before_publish` step: the job always loads it from there. |
@@ -408,14 +403,15 @@ Attaches the workspace, logs in to `registry`, loads the archive `build` saved, 
 | `archive_dir` | `~/images` | Directory that holds the archive (`<image>-img.tar`). `build` persists its `archive_dir` as `images` under its `workspace_root`, so with the workspace attached at `attach_workspace_at` the archive is in `<attach_workspace_at>/images`; the defaults of both jobs agree. |
 | `verify_checksums` | `strict` | SHA-512 verification of the Cosign and Syft downloads, passed to `cosign/install` and `syft/install`: `strict` fails unless the version's checksum is in the installing orb's table and matches (recommended), `known_versions` installs versions missing from the table without verification, `false` never verifies (not recommended). With `strict`, a `cosign_version` or `syft_version` the installing orb has no checksum for fails the job. |
 | `sign` | `false` | Sign the pushed image with Cosign using a private key. Needs `cosign_private_key` and `cosign_password`. |
-| `cosign_version` | `2.4.0` | Cosign version to install for signing and attestation. |
+| `cosign_version` | `3.1.3` | Cosign version to install for signing and attestation. |
+| `cosign_bundle_format` | `auto` | How signatures and attestations are stored, passed to the cosign orb's `bundle_format`: `auto` uses the installed Cosign's default (Sigstore bundles, stored as OCI referrers, for Cosign 3; legacy for Cosign 1 and 2), `bundle` always stores Sigstore bundles (Cosign 2.6.0 or later), `legacy` stores `sha256-<hex>.sig` and `.att` tags next to the image, which verifiers on older Cosign versions read. Cosign 3 deprecates `legacy`. |
 | `cosign_private_key` | `COSIGN_PRIVATE_KEY` | Name of the environment variable holding the base64-encoded Cosign private key. |
 | `cosign_password` | `COSIGN_PASSWORD` | Name of the environment variable holding the private key's password. |
 | `cosign_public_key` | `COSIGN_PUBLIC_KEY` | Name of the environment variable holding the base64-encoded Cosign public key, used by `verify_signature` and `verify_attestation`. |
 | `verify_signature` | `true` | Verify the signature with `cosign_public_key` right after signing. Only applies when `sign` is true. |
-| `sbom` | `false` | Generate an SBOM of the pushed image with Syft, in `sboms/` under the working directory. Needs a `syft_version` of 1.13.0 or later (see the [warning](#sign-generate-an-sbom-and-attest-it) in Recipes). |
+| `sbom` | `false` | Generate an SBOM of the pushed image with Syft, in `sboms/` under the working directory. The syft orb runs Syft with `--enrich all`, so `syft_version` must be 1.13.0 or later. |
 | `sbom_format` | `spdx-json` | `spdx-json` (SPDX JSON) or `cyclonedx-json` (CycloneDX JSON), each in the spec version Syft writes by default. |
-| `syft_version` | `1.11.0` | Syft version to install for SBOM generation. |
+| `syft_version` | `1.52.0` | Syft version to install for SBOM generation. |
 | `log_sbom` | `false` | Print the generated SBOM in the job log. |
 | `attest` | `false` | Attest the SBOM to the image with Cosign, with predicate type `spdxjson` or `cyclonedx` to match `sbom_format`. Only runs when `sign` and `sbom` are also true. |
 | `verify_attestation` | `true` | Verify the attestation with `cosign_public_key` right after attesting. Only applies when the attestation runs. |
@@ -437,10 +433,10 @@ Scans an image for vulnerabilities with Grype: by default the archive `build` sa
 | `registry_namespace` | *(empty)* | Namespace or organization path, used with `registry` to build `<registry>/<registry_namespace>/<image>:<tag>`. |
 | `registry_username` | `REGISTRY_USERNAME` | Name of the environment variable holding the registry username. Only used when `registry` is set. |
 | `registry_password` | `REGISTRY_PASSWORD` | Name of the environment variable holding the registry password. Only used when `registry` is set. |
-| `grype_version` | `0.87.0` | Grype version to install. |
+| `grype_version` | `0.119.0` | Grype version to install. |
 | `verify_checksums` | `strict` | SHA-512 verification of the Grype download, passed to `grype/install`: `strict` fails unless the version's checksum is known to the grype orb and matches (recommended), `known_versions` installs versions missing from the table without verification, `false` never verifies (not recommended). With `strict`, a `grype_version` the grype orb has no checksum for fails the job. |
 | `output_format` | `sarif` | Report format: `sarif` (for security tools), `json`, `table` (human-readable), `cyclonedx` (CycloneDX XML) or `cyclonedx-json`. The report's extension is `.sarif`, `.json`, `.txt`, `.cdx.xml` or `.cdx.json`. |
-| `fail_on` | *(empty)* | Fail the job if Grype finds a vulnerability at or above this severity: `negligible`, `low`, `medium`, `high` or `critical`. Empty never fails on vulnerabilities. |
+| `fail_on` | `never` | Fail the job if Grype finds a vulnerability at or above this severity: `negligible`, `low`, `medium`, `high` or `critical`. `never` reports vulnerabilities without failing the job. |
 | `output_dir` | `scan-results` | Directory for the report, named `<scan target>.grype.<extension>` with each `/` and `:` in the target replaced by `__`, e.g. `myapp__<sha>.grype.sarif`. |
 | `log_results` | `true` | Print the report in the job log. |
 | `persist_to_workspace` | `true` | Persist `output_dir` to the workspace for later jobs. |
@@ -576,7 +572,7 @@ You can pass any other executor that has Docker available. The jobs don't run `s
 
 ## 📦 Upgrading
 
-The next release renames a command, the executor and several parameters. Update your config as follows:
+v1.0.0 renames a command, the executor and several parameters. Update your config as follows:
 
 | Where | Old | New |
 |---|---|---|
@@ -596,10 +592,16 @@ The next release renames a command, the executor and several parameters. Update 
 | `publish` job | `pre_steps` / `post_steps` | `before_publish` / `after_publish` |
 | `scan` job | `pre_steps` / `post_steps` | `before_scan` / `after_scan` |
 | `docker_login` `username` / `password`, jobs' `registry_username` / `registry_password` | default `DOCKER_USERNAME` / `DOCKER_PASSWORD` | default `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` |
+| `scan` job | `fail_on: ""`, the default | `fail_on: never`, the default |
 
 The `before_*` and `after_*` steps run at the same points as the old `pre_steps` and `post_steps`; each job's parameter descriptions say exactly where. If your context defines `DOCKER_USERNAME` and `DOCKER_PASSWORD`, rename those variables or pass their names to `username` / `password` or `registry_username` / `registry_password`.
 
 Behavior changes:
+- The jobs use cosign-orb, syft-orb, grype-orb and container-tagger-orb 1.0.0, and install newer tools by default: Cosign 3.1.3 instead of 2.4.0, Syft 1.52.0 instead of 1.11.0, and Grype 0.119.0 instead of 0.87.0. Pin `cosign_version`, `syft_version` or `grype_version` to keep an older release.
+  - Cosign 3 stores signatures and attestations as Sigstore bundles, OCI referrers of the image, instead of the `sha256-<hex>.sig` and `.att` tags. Set the new `cosign_bundle_format: legacy` to keep those tags, for example while a verifier still runs Cosign 2.5 or earlier.
+  - `sbom: true` works with the default `syft_version`. Before, the syft orb ran Syft 1.11.0 with `--enrich all`, a flag added in Syft 1.13.0, so it failed unless you set a newer version.
+  - Grype 0.88.0 and later download the vulnerability database from `grype.anchore.io` instead of `toolbox-data.anchore.io`. See [Network Access](#-network-access).
+- Grype, Cosign and Syft are installed into `$HOME/bin`, the 1.0.0 orbs' default, instead of `/home/circleci/bin`. On CircleCI's images, that's the same directory.
 - `build_args` and `docker_pull`'s `images` (the `build` job's `pull_base_images`) are split on any whitespace, spaces or newlines. Before, a space-separated list such as `A=1 B=2` reached Docker as a single value.
 - `docker_save` (and the `build` job) fail when `persist_to_workspace` is true and `archive_dir` is not `<workspace_root>/images`. The workspace step can persist only that directory. Before, it persisted `<workspace_root>/images` anyway, so the archive was missing from the workspace, or the step failed when that directory did not exist.
 - A relative `dockerfile` is checked relative to the working directory, where `docker build -f` looks for it, not relative to the build context. Before, the check also accepted `<build context>/<dockerfile>`, but Docker still read the path relative to the working directory, so the build failed or used a different Dockerfile.
@@ -608,8 +610,8 @@ Behavior changes:
 
 ## 🔒 Secure by Design
 
-- **Least Privilege**: No `sudo` anywhere in this orb. The jobs install Grype, Cosign and Syft into `/home/circleci/bin`, the composed orbs' user-owned default.
-- **Integrity**: The `publish` and `scan` jobs default to `verify_checksums: strict`, so every Cosign, Syft and Grype binary is checked against the SHA-512 table of the orb that installs it, and a version missing from that table fails the job instead of running unverified. (The composed orbs' own default is `known_versions`; these jobs tighten it.) And because `scan` and `publish` load the archive `build` saved, the image you push is the image you scanned.
+- **Least Privilege**: No `sudo` anywhere in this orb. The jobs install Grype, Cosign and Syft into `$HOME/bin`, the composed orbs' user-owned default.
+- **Integrity**: The `publish` and `scan` jobs default to `verify_checksums: strict`, so every Cosign, Syft and Grype binary is checked against the SHA-512 table of the orb that installs it, and a version missing from that table fails the job instead of running unverified. And because `scan` and `publish` load the archive `build` saved, the image you push is the image you scanned.
 - **Provenance**: Cosign, Syft and Grype come from their official GitHub releases ([sigstore/cosign](https://github.com/sigstore/cosign/releases), [anchore/syft](https://github.com/anchore/syft/releases), [anchore/grype](https://github.com/anchore/grype/releases)), through the juburr orbs this orb pins by version.
 - **Confidentiality**: Registry and Cosign credentials are passed as environment variable *names* (`env_var_name` parameters), never as values in your config. `docker_login` reads the password from the named variable, turns shell tracing off, and hands the password to `docker login --password-stdin` rather than putting it on the command line, and the jobs run `docker logout` after your `after_*` steps. The cosign orb writes the decoded private key to a `0400` file and shreds it when the signing or attestation step exits. `extra_args` is split without `eval`, and this orb's scripts quote the values they export to later steps with `printf %q`, so an environment variable's value can't run a command.
 - **No public transparency log**: Private-key signing and attestation skip Sigstore's public Rekor log, and verification doesn't look for entries in it, so nothing about your images is published outside your registry.
@@ -626,10 +628,10 @@ Linux executors with a Docker daemon. The jobs default to this orb's [`machine` 
 | --- | :---: | :---: |
 | `build` job and the `docker_*` commands | ✅ | ✅ |
 | `publish` job: tag and push | ✅ | ✅ |
-| `publish` job: `sign`, `sbom`, `attest` | ✅ | ⛔ |
-| `scan` job | ✅ | ⛔ |
+| `publish` job: `sign`, `sbom`, `attest` | ✅ | ✅ |
+| `scan` job | ✅ | ✅ |
 
-The `build` job and the `docker_*` commands only run `docker`, so they work wherever Docker does; CI runs them on amd64. The `scan` job and the `publish` job's signing, SBOM and attestation steps install Grype, Cosign and Syft through grype-orb 0.5.0, cosign-orb 0.9.1 and syft-orb 0.9.0, which download only the Linux amd64 builds, so those steps need an x86_64 executor. To build an arm64 image on amd64, set `platform: linux/arm64` on `build`.
+The `build` job and the `docker_*` commands only run `docker`, so they work wherever Docker does. The `scan` job and the `publish` job's signing, SBOM and attestation steps install Grype, Cosign and Syft through grype-orb, cosign-orb and syft-orb 1.0.0, which pick the Linux amd64 or arm64 build from the executor's CPU and test both. This orb's CI runs its jobs on amd64. To build an arm64 image on amd64, set `platform: linux/arm64` on `build`.
 
 Cosign, Syft and Grype are cached between jobs per tool version, and Grype's vulnerability database is cached too. The Cosign steps also need `jq` on the executor.
 
@@ -644,17 +646,17 @@ Hosts to allow (HTTPS, port 443) when running on a locked-down or self-hosted ru
 | `github.com` | `scan`; `publish` with `sign` or `sbom` | Grype, Cosign and Syft downloads from their official releases |
 | `release-assets.githubusercontent.com` | `scan`; `publish` with `sign` or `sbom` | Where GitHub redirects release downloads |
 | `objects.githubusercontent.com` | `scan`; `publish` with `sign` or `sbom` | GitHub's previous redirect target for release downloads; allow it as well so a change on GitHub's side doesn't break downloads |
-| `toolbox-data.anchore.io` | `scan` with the default `grype_version` | Grype's vulnerability database on Grype 0.87.0 and earlier |
-| `grype.anchore.io` | `scan` with `grype_version` 0.88.0 or later | Grype's vulnerability database on newer Grype versions |
+| `grype.anchore.io` | `scan` with the default `grype_version`, or any 0.88.0 or later | Grype's vulnerability database |
+| `toolbox-data.anchore.io` | `scan` with `grype_version` 0.87.0 or earlier | Grype's vulnerability database on older Grype versions |
 
 Optional hosts. The jobs carry on without them:
 
 | Host | Used for | Notes |
 | --- | --- | --- |
 | `toolbox-data.anchore.io` | Grype's and Syft's update check at startup | Set `GRYPE_CHECK_FOR_APP_UPDATE` and `SYFT_CHECK_FOR_APP_UPDATE` to `false` to skip it. |
-| Package registries such as Maven Central, npm and the Go module proxy | `sbom` with Syft 1.13.0 or later | The syft orb runs Syft with `--enrich all`, which looks up package metadata such as licenses online. See the [syft orb](https://github.com/juburr/syft-orb) for the hosts. |
+| Package registries such as Maven Central, npm and the Go module proxy | `sbom` | The syft orb runs Syft with `--enrich all`, which looks up package metadata such as licenses online. See the [syft orb](https://github.com/juburr/syft-orb) for the hosts. |
 
-Signing and verifying with a private key, as `publish` does, needs no Sigstore hosts with the default Cosign 2.4.0, since the transparency log is off. The [cosign orb](https://github.com/juburr/cosign-orb) documents the exceptions for other Cosign versions and formats.
+Signing and verifying with a private key, as `publish` does, needs no Sigstore hosts with the default Cosign 3.1.3, since the transparency log is off. The [cosign orb](https://github.com/juburr/cosign-orb) documents the exceptions for other Cosign versions and formats.
 
 ## 🤝 Contributing
 
