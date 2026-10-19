@@ -14,6 +14,9 @@
 # - docker_save refuses to persist an archive_dir other than
 #   <workspace_root>/images, the only directory its workspace step persists
 # - docker_login passes the password on stdin, not as an argument
+# - the publish job's digest step finds the digest Docker recorded for the
+#   target repository, also under Docker Hub's short names, and fails
+#   instead of guessing when there is none or more than one
 # - a value a script exports to $BASH_ENV comes back unchanged when a later
 #   step sources it, even with a quote and a $(...) in it
 #
@@ -50,7 +53,8 @@ EOF
 # Logs each invocation's arguments, one per line, followed by "--end--".
 # "docker save -o FILE" creates FILE. "docker pull" of an image listed in
 # DOCKER_PULL_FAIL fails. "docker load" reports loading DOCKER_LOADED_IMAGE,
-# if set. "docker login" saves its stdin in DOCKER_STDIN.
+# if set. "docker login" saves its stdin in DOCKER_STDIN. "docker image
+# inspect" with a RepoDigests format prints DOCKER_REPO_DIGESTS.
 cat > "${TMP}/bin/docker" << 'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" --end-- >> "${DOCKER_LOG}"
@@ -59,6 +63,7 @@ case "${1:-}" in
     pull) [[ " ${DOCKER_PULL_FAIL:-} " != *" $2 "* ]] || exit 1 ;;
     load) [[ -z "${DOCKER_LOADED_IMAGE:-}" ]] || printf 'Loaded image: %s\n' "${DOCKER_LOADED_IMAGE}" ;;
     login) cat > "${DOCKER_STDIN}" ;;
+    image) [[ "$*" != *".RepoDigests"* ]] || printf '%s' "${DOCKER_REPO_DIGESTS:-}" ;;
 esac
 exit 0
 EOF
@@ -419,6 +424,51 @@ else
 fi
 unset TEST_REGISTRY_USER TEST_REGISTRY_PASS
 
+# --- resolve_digest (publish job) -------------------------------------------
+D1=sha256:$(printf '1%.0s' {1..64})
+D2=sha256:$(printf '2%.0s' {1..64})
+
+# digest_case NAME REPOSITORY REPO_DIGESTS WANT_DIGEST|fail:MESSAGE
+digest_case() {
+    local name=$1 want=$4 got
+    export PARAM_SOURCE_IMAGE=myapp:t1 PARAM_REPOSITORY=$2 DOCKER_REPO_DIGESTS=$3
+    run docker/resolve_digest.sh
+    if [[ "${want}" == fail:* ]]; then
+        if [[ "${STATUS}" -ne 0 && "${OUTPUT}" == *"${want#fail:}"* && ! -s "${BASH_ENV}" ]]; then
+            pass "resolve_digest: ${name}"
+        else
+            fail "resolve_digest: ${name} (status ${STATUS}): ${OUTPUT}"
+        fi
+        return
+    fi
+    # shellcheck source=/dev/null # written by the script under test
+    got=$(source "${BASH_ENV}" 2> /dev/null && printf '%s %s' "${PUBLISHED_IMAGE_DIGEST:-}" "${PUBLISHED_IMAGE_DIGEST_REF:-}") || got=""
+    if [[ "${STATUS}" -eq 0 && "${got}" == "${want} $2@${want}" ]] \
+        && docker_args_contain image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' myapp:t1 --end--; then
+        pass "resolve_digest: ${name}"
+    else
+        fail "resolve_digest: ${name} (status ${STATUS}, exported '${got}'): ${OUTPUT}"
+    fi
+}
+digest_case "picks the target repository's entry" ghcr.io/myorg/myapp \
+    $'registry.example/other/myapp@'"${D1}"$'\nghcr.io/myorg/myapp@'"${D2}"$'\n' "${D2}"
+digest_case "matches Docker Hub's short name" docker.io/myorg/myapp $'myorg/myapp@'"${D1}"$'\n' "${D1}"
+digest_case "matches an official image under index.docker.io" index.docker.io/library/myapp \
+    $'myapp@'"${D1}"$'\n' "${D1}"
+digest_case "keeps localhost:5000 as a registry" localhost:5000/testorg/myapp \
+    $'testorg/myapp@'"${D2}"$'\nlocalhost:5000/testorg/myapp@'"${D1}"$'\n' "${D1}"
+digest_case "accepts one digest listed under two spellings" docker.io/myorg/myapp \
+    $'myorg/myapp@'"${D1}"$'\ndocker.io/myorg/myapp@'"${D1}"$'\n' "${D1}"
+digest_case "does not match a repository that only shares a prefix" ghcr.io/myorg/myapp \
+    $'ghcr.io/myorg/myapp2@'"${D1}"$'\n' "fail:Docker has no digest recorded for ghcr.io/myorg/myapp"
+digest_case "fails without RepoDigests" ghcr.io/myorg/myapp "" \
+    "fail:Docker has no digest recorded for ghcr.io/myorg/myapp"
+digest_case "fails on two digests for the repository" ghcr.io/myorg/myapp \
+    $'ghcr.io/myorg/myapp@'"${D1}"$'\nghcr.io/myorg/myapp@'"${D2}"$'\n' "fail:more than one digest"
+digest_case "fails on a digest that is not sha256" ghcr.io/myorg/myapp \
+    $'ghcr.io/myorg/myapp@sha512:abc\n' "fail:is not a sha256 digest"
+unset DOCKER_REPO_DIGESTS
+
 # --- exports to $BASH_ENV ----------------------------------------------------
 # Later steps source $BASH_ENV, so a value exported there must come back
 # unchanged and run nothing. Wrapped in single quotes instead of quoted with
@@ -474,6 +524,12 @@ check_exports docker/save.sh ARCHIVED_IMAGE_PATH "archives/${VALUE}-img.tar" ARC
 export PARAM_IMAGE="${VALUE}" PARAM_TAGS="${VALUE} t2"
 run docker/push.sh
 check_exports docker/push.sh PUSHED_IMAGE "${VALUE}" PUSHED_IMAGE_TAG "${VALUE}" PUSHED_IMAGE_FULL "${VALUE}:${VALUE}"
+
+export PARAM_SOURCE_IMAGE="${VALUE}:${VALUE}" PARAM_REPOSITORY="${VALUE}"
+export DOCKER_REPO_DIGESTS="${VALUE}@${D1}"$'\n'
+run docker/resolve_digest.sh
+check_exports docker/resolve_digest.sh PUBLISHED_IMAGE_DIGEST "${D1}" PUBLISHED_IMAGE_DIGEST_REF "${VALUE}@${D1}"
+unset DOCKER_REPO_DIGESTS
 
 export PARAM_SOURCE_IMAGE="${VALUE}:source" PARAM_TARGET_IMAGE="${VALUE}" PARAM_TAGS="${VALUE} t2"
 run docker/tag.sh

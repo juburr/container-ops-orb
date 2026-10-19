@@ -114,7 +114,7 @@ Build the image in your repository's `Dockerfile`, scan it, and push it to your 
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   build-scan-publish:
@@ -140,13 +140,13 @@ workflows:
 Change `image`, `registry` and `registry_namespace`, and create a `registry-credentials` context with `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` (or pass your own variable names to `registry_username` and `registry_password`). Every job runs on the orb's [`machine` executor](#-executors), so there's no Docker setup to add. The image is tagged with the commit SHA, which is how `scan` and `publish` find it, and pushed as `ghcr.io/myorg/myapp:<commit SHA>` and `:latest`. The scan report is printed in the `scan` job's log and persisted to the workspace under `scan-results/`. To sign the image and attach an SBOM, see [Recipes](#-recipes).
 
 > [!TIP]
-> Upgrading from an earlier version? v1.0.0 renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. See [Upgrading](#-upgrading).
+> Upgrading from an earlier version? From 1.0.0, `publish` signs the digest it pushed and names its SBOM file after that digest. From 0.x, v1.0.0 also renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. See [Upgrading](#-upgrading).
 
 > [!NOTE]
 > `fail_on` is `never` by default, and then the `scan` job never fails on vulnerabilities, only on errors. When `fail_on` does fail the job, the steps after the scan don't run: the report isn't printed or persisted to the workspace. See [Gate on Vulnerabilities and Keep the Report](#gate-on-vulnerabilities-and-keep-the-report).
 
 > [!IMPORTANT]
-> `publish` is tag-oriented and single-platform. Read [How the Publish Job Works](#-how-the-publish-job-works) before you rely on it for releases.
+> `publish` is single-platform, and it signs, inventories and attests the digest it pushed rather than a tag. Read [How the Publish Job Works](#-how-the-publish-job-works) before you rely on it for releases.
 
 ## 🍳 Recipes
 
@@ -158,7 +158,7 @@ Sign the pushed image with a Cosign key pair, generate an SPDX SBOM with Syft, a
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   secure-publish:
@@ -193,7 +193,7 @@ Signing and attestation use the private key without the public Rekor transparenc
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   secure-build:
@@ -233,7 +233,7 @@ Scan an image that is already in a registry, for example from a scheduled pipeli
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   scan-published:
@@ -260,7 +260,7 @@ Log in to a private registry before building, and pull base images from it witho
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   build-workflow:
@@ -287,7 +287,7 @@ Push release-style tags (`1.2.3`, `1.2`, `1` and `latest` for the newest `v1.2.3
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
   tagger: juburr/container-tagger-orb@1.0.0
 
 workflows:
@@ -315,19 +315,65 @@ workflows:
               only: /^v.*/
 ```
 
-Only the tags in the file are pushed. Signing and SBOM generation still refer to the image by `tag` (the commit SHA by default), so if you turn them on, also append that tag to the file, for example with `- run: echo "${CIRCLE_SHA1}" >> tags.txt` after `generate_tags`. See [Tag-oriented](#tag-oriented). After the push, the job exports the most specific tag as `TAG` for `after_publish` steps.
+Only the tags in the file are pushed. Signing, SBOM generation and attestation use the digest of that push, so the file doesn't need to list `tag`. See [Signed by Digest](#signed-by-digest). After the push, the job exports the most specific tag as `TAG` for `after_publish` steps.
 
 ## 📤 How the Publish Job Works
 
-The `publish` job is **tag-oriented** and **single-platform**. Check that this fits your release process before you rely on it.
+The `publish` job is **signed by digest** and **single-platform**. Check that this fits your release process before you rely on it.
 
-### Tag-oriented
+### Signed by Digest
 
-`publish` loads the image archive saved by `build`. For each tag (`tag` plus `additional_tags`, or each line of `tags_file`) it runs `docker tag` and `docker push`. Signing, SBOM generation and attestation then refer to the image by tag, as `<registry>/<registry_namespace>/<image>:<tag>`.
+`publish` loads the image archive saved by `build`. For each tag (`tag` plus `additional_tags`, or each line of `tags_file`) it runs `docker tag` and `docker push`. It then reads the digest Docker recorded for that push to `<registry>/<registry_namespace>/<image>`, and exports it for later steps, including `after_publish`:
 
-- Cosign signs a digest, not a tag. The cosign orb looks up the tag's digest when the signing and attestation steps run. With `crane` on the `PATH` it asks the registry, so if another pipeline moves the tag after this job's push, the job signs that other image. Without `crane` it uses the digest Docker recorded when this job pushed the tag. The verification steps look the tag up in the registry when they run.
-- With `tags_file`, only the tags listed in the file are pushed, but signing, SBOM generation and attestation still use the `tag` parameter. If `sign` or `sbom` is enabled, include the `tag` value in the tags file. Otherwise those steps fail because the tag is not in the registry. If an earlier publish left an image under that tag, they sign and inventory that older image instead.
-- The job does not record the digest it pushed. A downstream job that needs the digest must look up the tag itself, for example with `crane digest`.
+| Variable | Example |
+| --- | --- |
+| `PUBLISHED_IMAGE_DIGEST` | `sha256:4c1f…` |
+| `PUBLISHED_IMAGE_DIGEST_REF` | `ghcr.io/myorg/myapp@sha256:4c1f…` |
+
+Signing, SBOM generation, attestation and their verification all use `PUBLISHED_IMAGE_DIGEST_REF`, so:
+
+- They cover the image this job pushed, even if another pipeline moves one of its tags in the meantime, or an earlier publish left a different image under `tag`.
+- With `tags_file`, the file doesn't need to list `tag`.
+- The SBOM's source is the digest reference, and its file in `sboms/` is named after the image and digest, such as `myapp@sha256-4c1f….spdx.json`.
+
+The job fails if Docker recorded no digest for the repository, or more than one, rather than guess.
+
+To deploy exactly the image that was signed, hand the digest to a later job through the workspace:
+
+```yaml
+version: 2.1
+
+orbs:
+  container-ops-orb: juburr/container-ops-orb@1.1.0
+
+workflows:
+  release:
+    jobs:
+      - container-ops-orb/build:
+          image: myapp
+      - container-ops-orb/publish:
+          requires:
+            - container-ops-orb/build
+          image: myapp
+          registry: ghcr.io
+          registry_namespace: myorg
+          sign: true
+          after_publish:
+            - run:
+                name: Save the published digest
+                command: |
+                  mkdir -p published
+                  printf '%s\n' "${PUBLISHED_IMAGE_DIGEST_REF}" > published/myapp.ref
+            - persist_to_workspace:
+                root: .
+                paths:
+                  - published
+          context:
+            - registry-credentials
+            - signing-keys
+```
+
+A later job that attaches the workspace reads the reference from `published/myapp.ref`.
 
 ### Single-platform
 
@@ -346,7 +392,7 @@ This is not available in the orb today. A digest-first publish would build all p
 2. Sign and attest that digest, and generate an SBOM for each platform's manifest.
 3. Apply every tag to the digest in the registry in one step without pushing the image again, for example with the `tag_digest` command from `container-tagger-orb`.
 
-Signatures would then never depend on where a tag points, and every tag would carry every platform.
+Every tag would then carry every platform, and the image would be signed before any tag points to it.
 
 ## 🧱 Jobs
 
@@ -386,14 +432,14 @@ Checks out your code and builds an image with `docker build`, or `docker buildx 
 
 ### `container-ops-orb/publish`
 
-Attaches the workspace, logs in to `registry`, loads the archive `build` saved, and pushes the image as `<registry>/<registry_namespace>/<image>` under `tag` plus `additional_tags` (or the tags in `tags_file`). Optionally signs it with Cosign, generates an SBOM with Syft and attests the SBOM, verifying each with your public key, then logs out. It doesn't check out code. Read [How the Publish Job Works](#-how-the-publish-job-works) for what "tag-oriented" and "single-platform" mean here.
+Attaches the workspace, logs in to `registry`, loads the archive `build` saved, and pushes the image as `<registry>/<registry_namespace>/<image>` under `tag` plus `additional_tags` (or the tags in `tags_file`). Exports the digest it pushed as `PUBLISHED_IMAGE_DIGEST` and `PUBLISHED_IMAGE_DIGEST_REF`. Optionally signs that digest with Cosign, generates its SBOM with Syft and attests the SBOM, verifying each with your public key, then logs out. It doesn't check out code. Read [How the Publish Job Works](#-how-the-publish-job-works) for what "signed by digest" and "single-platform" mean here.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `image` | *required* | Local image name (repository, without a tag) from the `build` job, such as `myapp`. It selects the archive `<image>-img.tar` and names the pushed repository. |
 | `registry` | *required* | Registry hostname to push to, such as `ghcr.io`, `docker.io`, `gcr.io` or `123456789.dkr.ecr.us-east-1.amazonaws.com`. |
 | `registry_namespace` | *required* | Namespace or organization path: `myorg` pushes to `ghcr.io/myorg/myapp`. |
-| `tag` | `${CIRCLE_SHA1}` | The tag `build` saved, its first tag (by default the commit SHA). The job retags `<image>:<tag>` for the registry, and signs, inventories (SBOM) and attests `<registry>/<registry_namespace>/<image>:<tag>`. Without `tags_file`, the image is pushed as this tag plus `additional_tags`; with `tags_file`, as the tags in that file. It isn't used for loading: the archive restores the tag saved in it. |
+| `tag` | `${CIRCLE_SHA1}` | The tag `build` saved, its first tag (by default the commit SHA). The job retags `<image>:<tag>` for the registry and reads the digest it pushed through that image. Without `tags_file`, the image is pushed as this tag plus `additional_tags`; with `tags_file`, as the tags in that file only. It isn't used for loading: the archive restores the tag saved in it. |
 | `additional_tags` | *(empty)* | More tags to push besides `tag`, separated by spaces, such as `latest v1.0.0`. Not used with `tags_file`. |
 | `tags_file` | *(empty)* | Path to a tags file with one tag per line, such as one generated by [container-tagger-orb](https://github.com/juburr/container-tagger-orb). When set, the job tags and pushes with that orb's `tag` and `push` commands instead of `docker_tag` and `docker_push`, then exports the most specific tag as `TAG` with its `export_tag` command. |
 | `registry_username` | `REGISTRY_USERNAME` | Name of the environment variable holding the registry username. |
@@ -571,6 +617,15 @@ To change the image or resource class, pass them to the executor:
 You can pass any other executor that has Docker available. The jobs don't run `setup_remote_docker` themselves, which is why a machine executor is the default.
 
 ## 📦 Upgrading
+
+### From 1.0.0 to 1.1.0
+
+No configuration changes are needed. The `publish` job now signs, inventories and attests the digest it pushed instead of `<registry>/<registry_namespace>/<image>:<tag>` (see [Signed by Digest](#signed-by-digest)):
+- With `tags_file`, the file no longer needs to list `tag`.
+- The SBOM file in `sboms/` is named after the digest, such as `myapp@sha256-4c1f….spdx.json`, instead of the tag, such as `myapp-<commit SHA>.spdx.json`. Update any step that names the file instead of using `sboms/`.
+- The job exports `PUBLISHED_IMAGE_DIGEST` and `PUBLISHED_IMAGE_DIGEST_REF`, and fails if Docker recorded no single digest for the push.
+
+### From 0.x to 1.0.0
 
 v1.0.0 renames a command, the executor and several parameters. Update your config as follows:
 
