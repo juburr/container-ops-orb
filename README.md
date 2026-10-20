@@ -101,7 +101,7 @@ flowchart LR
 
 | Step | Orb used | Tool version (default) |
 | --- | --- | --- |
-| `scan` | [`juburr/grype-orb@1.0.0`](https://github.com/juburr/grype-orb) | Grype `0.119.0` (`grype_version`) |
+| `scan` | [`juburr/grype-orb@1.0.1`](https://github.com/juburr/grype-orb) | Grype `0.119.0` (`grype_version`) |
 | `publish` with `sign` (and `attest`) | [`juburr/cosign-orb@1.0.0`](https://github.com/juburr/cosign-orb) | Cosign `3.1.3` (`cosign_version`) |
 | `publish` with `sbom` | [`juburr/syft-orb@1.0.0`](https://github.com/juburr/syft-orb) | Syft `1.52.0` (`syft_version`) |
 | `publish` with `tags_file` | [`juburr/container-tagger-orb@1.0.0`](https://github.com/juburr/container-tagger-orb) | none, uses `docker` |
@@ -626,6 +626,8 @@ The `scan` job now applies `fail_on` after it prints the report, instead of lett
 - With `fail_on` set, `output_dir` also holds `<scan target>.grype.json`, the JSON copy the gate reads, unless `output_format` is already `json`. Writing both reports from one scan needs `grype_version` 0.104.1 or later, and the gate needs `jq`.
 - An `after_scan` step that printed the report with `when: always` because the gate skipped it is no longer needed.
 
+The `scan` job now uses grype-orb 1.0.1, whose vulnerability database cache works. In 1.0.0 it never picked up a newer database, so every scan downloaded the database. Scans now reuse the cached database until Anchore publishes a newer one. Each cached database takes about 500 MiB of cache storage, roughly one a day.
+
 ### From 0.x to 1.0.0
 
 v1.0.0 renames a command, the executor and several parameters. Update your config as follows:
@@ -687,7 +689,7 @@ Linux executors with a Docker daemon. The jobs default to this orb's [`machine` 
 | `publish` job: `sign`, `sbom`, `attest` | ✅ | ✅ |
 | `scan` job | ✅ | ✅ |
 
-The `build` job and the `docker_*` commands only run `docker`, so they work wherever Docker does. The `scan` job and the `publish` job's signing, SBOM and attestation steps install Grype, Cosign and Syft through grype-orb, cosign-orb and syft-orb 1.0.0, which pick the Linux amd64 or arm64 build from the executor's CPU and test both. This orb's CI runs its jobs on amd64. To build an arm64 image on amd64, set `platform: linux/arm64` on `build`.
+The `build` job and the `docker_*` commands only run `docker`, so they work wherever Docker does. The `scan` job and the `publish` job's signing, SBOM and attestation steps install Grype, Cosign and Syft through grype-orb, cosign-orb and syft-orb, which pick the Linux amd64 or arm64 build from the executor's CPU and test both. This orb's CI runs its jobs on amd64. To build an arm64 image on amd64, set `platform: linux/arm64` on `build`.
 
 Cosign, Syft and Grype are cached between jobs per tool version, and Grype's vulnerability database is cached too. The Cosign steps, and the `scan` job's `fail_on` gate, also need `jq` on the executor.
 
