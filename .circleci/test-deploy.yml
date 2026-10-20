@@ -757,14 +757,15 @@ jobs:
             PARAM_REGISTRY_NAMESPACE: ""
             PARAM_OUTPUT_DIR: scan-results
             PARAM_OUTPUT_FORMAT: sarif
+            PARAM_FAIL_ON: never
           command: |
             mkdir -p scan-results
             source src/scripts/grype/prepare_scan.sh
 
       # Run the scan
       - grype/scan:
-          source: scan-test-app:scan123
-          output: sarif=scan-results/scan-test-app__scan123.grype.sarif
+          source: ${SCAN_TARGET}
+          output: ${SCAN_OUTPUTS}
 
       # Verify scan output was created
       - run:
@@ -779,6 +780,68 @@ jobs:
               echo "ERROR: Scan results not found"
               exit 1
             fi
+
+  # The scan job's gate on a real Grype report: the scan writes the report and
+  # its JSON copy without failing, then the gate fails on the most severe
+  # vulnerability found and passes with fail_on never.
+  scan-gate-test:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Build an image with known vulnerabilities
+          command: |
+            # Alpine 3.10.0's packages have vulnerabilities fixed in later
+            # 3.10 releases.
+            printf '%s\n' 'FROM alpine:3.10.0' 'CMD ["true"]' > Dockerfile
+            docker build -t gate-test-app:gate1 .
+      - grype/install:
+          version: "0.119.0"
+          caching: true
+      - grype/update_database:
+          caching: true
+      - run:
+          name: Prepare Scan Config with fail_on high
+          environment:
+            PARAM_IMAGE: gate-test-app
+            PARAM_TAG: gate1
+            PARAM_IMAGE_SOURCE: local
+            PARAM_ARCHIVE_DIR: ~/images
+            PARAM_REGISTRY: ""
+            PARAM_REGISTRY_NAMESPACE: ""
+            PARAM_OUTPUT_DIR: scan-results
+            PARAM_OUTPUT_FORMAT: table
+            PARAM_FAIL_ON: high
+          command: source src/scripts/grype/prepare_scan.sh
+      - grype/scan:
+          source: ${SCAN_TARGET}
+          output: ${SCAN_OUTPUTS}
+          fail_on: never
+      - run:
+          name: Assert the gate fails on the report and keeps it
+          command: |
+            set -euo pipefail
+            test "${SCAN_OUTPUTS}" = "table=scan-results/gate-test-app__gate1.grype.txt,json=scan-results/gate-test-app__gate1.grype.json"
+            test -s scan-results/gate-test-app__gate1.grype.txt
+            test -s "${SCAN_GATE_FILE}"
+            # The most severe known severity in the report, so the gate must
+            # fail at that threshold whatever the database says today.
+            worst=$(jq -r '[.matches[].vulnerability.severity | ascii_downcase
+                | select(. == "negligible" or . == "low" or . == "medium" or . == "high" or . == "critical")]
+                | (["critical", "high", "medium", "low", "negligible"] - (["critical", "high", "medium", "low", "negligible"] - .))[0] // empty' \
+                "${SCAN_GATE_FILE}")
+            echo "Most severe vulnerability: ${worst}"
+            test -n "${worst}"
+            set +e
+            PARAM_FAIL_ON="${worst}" bash src/scripts/grype/apply_fail_on.sh > gate.log 2>&1
+            rc=$?
+            set -e
+            cat gate.log
+            test "${rc}" -eq 1
+            grep -q "^ERROR: fail_on=${worst} and" gate.log
+            PARAM_FAIL_ON=never bash src/scripts/grype/apply_fail_on.sh
 
   # Test scan job - scan from archive directly
   scan-archive-test:
@@ -936,6 +999,9 @@ workflows:
       - scan-formats-test:
           filters: *filters
 
+      - scan-gate-test:
+          filters: *filters
+
       # Test the build job directly with minimal config
       - container-ops-orb/build:
           name: build-job-simple-test
@@ -1046,6 +1112,39 @@ workflows:
                 image: scan-job-app
                 tag: scanjob
                 persist_to_workspace: false
+          filters: *filters
+
+      # The scan job with a gate that passes: a report plus its JSON copy for
+      # the gate, uploaded as artifacts before the gate.
+      - container-ops-orb/scan:
+          name: scan-job-gate-pass-test
+          image: scan-gate-app
+          tag: gatepass
+          output_format: table
+          fail_on: negligible
+          store_artifacts: true
+          attach_workspace: false
+          persist_to_workspace: false
+          before_scan:
+            - run:
+                name: Create an image with no packages
+                command: |
+                  echo "no packages here" > notes.txt
+                  printf '%s\n' 'FROM scratch' 'COPY notes.txt /' > Dockerfile
+            - container-ops-orb/docker_build:
+                image: scan-gate-app
+                tags: "gatepass"
+            - container-ops-orb/docker_save:
+                image: scan-gate-app
+                tag: gatepass
+                persist_to_workspace: false
+          post-steps:
+            - run:
+                name: Assert the report and its JSON copy
+                command: |
+                  set -euo pipefail
+                  test -s scan-results/scan-gate-app__gatepass.grype.txt
+                  jq -e '.matches | length == 0' scan-results/scan-gate-app__gatepass.grype.json
           filters: *filters
 
       # Run the publish job with tags_file, signing, an SBOM and its
@@ -1199,6 +1298,8 @@ workflows:
             - build-job-multistage-test
             - build-job-custom-path-test
             - scan-job-test
+            - scan-gate-test
+            - scan-job-gate-pass-test
             - publish-job-signing-test
             - publish-job-signing-legacy-test
           context: orb-publishing
