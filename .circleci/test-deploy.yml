@@ -1050,6 +1050,9 @@ workflows:
 
       # Run the publish job with tags_file, signing, an SBOM and its
       # attestation against a local registry, with Cosign's default format.
+      # The registry already holds an older image under the job's tag, and
+      # the tags file leaves that tag out: every step must still use the
+      # digest this job pushed, and leave the older image alone.
       - container-ops-orb/publish:
           name: publish-job-signing-test
           image: signed-app
@@ -1069,6 +1072,19 @@ workflows:
                   docker run -d -p 5000:5000 --name registry registry:2
                   # registry:2 has no authentication; docker login only needs values.
                   printf 'export %s=%q\n' REGISTRY_USERNAME test REGISTRY_PASSWORD test >> "${BASH_ENV}"
+                  for _ in $(seq 30); do
+                    if curl -fsS http://localhost:5000/v2/ > /dev/null; then exit 0; fi
+                    sleep 1
+                  done
+                  echo "ERROR: the local registry did not start." >&2
+                  exit 1
+            - run:
+                name: Push an older image under the job's tag
+                command: |
+                  mkdir -p stale
+                  printf '%s\n' 'FROM alpine:3.20' 'CMD ["echo", "stale image"]' > stale/Dockerfile
+                  docker build -t localhost:5000/testorg/signed-app:sig123 stale
+                  docker push localhost:5000/testorg/signed-app:sig123
             - run:
                 name: Create test Dockerfile and tags file
                 command: |
@@ -1076,8 +1092,8 @@ workflows:
                   FROM alpine:3.20
                   CMD ["echo", "Signed publish test"]
                   EOF
-                  # Signing refers to the image by tag, so the file lists it.
-                  printf '%s\n' sig123 1.0.0 latest > tags.txt
+                  # Leaves out sig123, the job's tag, which the older image holds.
+                  printf '%s\n' 1.0.0 latest > tags.txt
             - container-ops-orb/docker_build:
                 image: signed-app
                 tags: "sig123"
@@ -1088,19 +1104,43 @@ workflows:
             - cosign/install
             - cosign/generate_key_pair
           after_publish:
+            - &assert-published-digest
+              run:
+                name: Assert the exported digest is this job's push
+                command: |
+                  set -euo pipefail
+                  digest_of() {
+                    curl -fsS -I \
+                      -H 'Accept: application/vnd.oci.image.index.v1+json' \
+                      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+                      -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+                      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+                      "http://localhost:5000/v2/testorg/signed-app/manifests/$1" \
+                      | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" {print $2}'
+                  }
+                  echo "PUBLISHED_IMAGE_DIGEST_REF: ${PUBLISHED_IMAGE_DIGEST_REF}"
+                  test "${PUBLISHED_IMAGE_DIGEST_REF}" = "localhost:5000/testorg/signed-app@${PUBLISHED_IMAGE_DIGEST}"
+                  for t in 1.0.0 latest; do
+                    test "$(digest_of "${t}")" = "${PUBLISHED_IMAGE_DIGEST}"
+                  done
+                  stale=$(digest_of sig123)
+                  echo "sig123 still points to ${stale}"
+                  test -n "${stale}" && test "${stale}" != "${PUBLISHED_IMAGE_DIGEST}"
+                  printf 'export %s=%q\n' STALE_DIGEST "${stale}" >> "${BASH_ENV}"
+                  test -n "${TAG:-}"
             - run:
-                name: Assert tags, TAG, SBOM and Sigstore bundle storage
+                name: Assert Sigstore bundles for this job's digest only
                 command: |
                   set -euo pipefail
                   tags=$(curl -fsS http://localhost:5000/v2/testorg/signed-app/tags/list)
                   echo "${tags}"
-                  for t in sig123 1.0.0 latest; do
-                    jq -e --arg t "${t}" '.tags | index($t)' \<<< "${tags}" > /dev/null
-                  done
-                  test -n "${TAG:-}"
                   ls sboms/*.spdx.json
-                  # Cosign 3 stores Sigstore bundles, not .sig and .att tags.
+                  # Cosign 3 stores Sigstore bundles, not .sig and .att tags. On a
+                  # registry without the referrers API, it indexes them under the
+                  # tag sha256-<hex> of the digest it signed.
                   jq -e '[.tags[] | select(endswith(".sig") or endswith(".att"))] | length == 0' \<<< "${tags}"
+                  jq -e --arg t "sha256-${PUBLISHED_IMAGE_DIGEST#sha256:}" '.tags | index($t)' \<<< "${tags}" > /dev/null
+                  jq -e --arg s "sha256-${STALE_DIGEST#sha256:}" '[.tags[] | select(startswith($s))] | length == 0' \<<< "${tags}"
           filters: *filters
 
       # The same publish with cosign_bundle_format: legacy and a CycloneDX SBOM.
@@ -1119,15 +1159,18 @@ workflows:
           cosign_bundle_format: legacy
           before_publish: *signing-setup
           after_publish:
+            - *assert-published-digest
             - run:
-                name: Assert the legacy .sig and .att tags and the SBOM
+                name: Assert legacy .sig and .att tags for this job's digest only
                 command: |
                   set -euo pipefail
                   tags=$(curl -fsS http://localhost:5000/v2/testorg/signed-app/tags/list)
                   echo "${tags}"
-                  jq -e '[.tags[] | select(endswith(".sig"))] | length == 1' \<<< "${tags}"
-                  jq -e '[.tags[] | select(endswith(".att"))] | length == 1' \<<< "${tags}"
                   ls sboms/*.cdx.json
+                  for suffix in sig att; do
+                    jq -e --arg t "sha256-${PUBLISHED_IMAGE_DIGEST#sha256:}.${suffix}" '.tags | index($t)' \<<< "${tags}" > /dev/null
+                  done
+                  jq -e --arg s "sha256-${STALE_DIGEST#sha256:}" '[.tags[] | select(startswith($s))] | length == 0' \<<< "${tags}"
           filters: *filters
 
       # The orb must be re-packed for publishing, and saved to the workspace.

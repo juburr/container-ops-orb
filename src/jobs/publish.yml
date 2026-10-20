@@ -9,9 +9,11 @@ description: |
 
   Designed to work with the build job in a build-once, publish-many workflow.
 
-  Publishing is tag-oriented and single-platform: signing, SBOM generation
-  and attestation refer to the image as registry/namespace/image:tag, and
-  multi-platform images are not supported. See the README for details.
+  Signing, SBOM generation and attestation use the digest this job pushed,
+  exported as PUBLISHED_IMAGE_DIGEST_REF (registry/namespace/image@sha256:...),
+  so they never depend on where a tag points in the registry. Publishing is
+  single-platform: multi-platform images are not supported. See the README
+  for details.
 
 executor: << parameters.executor >>
 
@@ -41,13 +43,12 @@ parameters:
     default: "${CIRCLE_SHA1}"
     description: |
       The source tag: the job retags the loaded image <image>:<tag> for the
-      registry, and signs, inventories (SBOM) and attests
-      <registry>/<registry_namespace>/<image>:<tag>. It must be the tag the
-      build job saved, its first tag (by default the commit SHA). It is not
-      used for loading: docker_load reads <image>-img.tar, which restores
-      the tag saved in it. Without tags_file, the image is pushed as this
-      tag plus additional_tags; with tags_file, as the tags in that file.
-      Supports environment variable substitution.
+      registry, and finds the digest it pushed through that image. It must
+      be the tag the build job saved, its first tag (by default the commit
+      SHA). It is not used for loading: docker_load reads <image>-img.tar,
+      which restores the tag saved in it. Without tags_file, the image is
+      pushed as this tag plus additional_tags; with tags_file, as the tags
+      in that file only. Supports environment variable substitution.
 
   additional_tags:
     type: string
@@ -300,45 +301,53 @@ steps:
             image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>
             tags: << parameters.tag >> << parameters.additional_tags >>
 
-  # 6. Signing with Cosign (conditional)
+  # 6. Find the digest the push stored, for the steps below and after_publish
+  - run:
+      name: Resolve Pushed Digest
+      environment:
+        PARAM_SOURCE_IMAGE: << parameters.image >>:<< parameters.tag >>
+        PARAM_REPOSITORY: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>
+      command: << include(scripts/docker/resolve_digest.sh) >>
+
+  # 7. Signing with Cosign (conditional)
   - when:
       condition: << parameters.sign >>
       steps:
-        # 6a. Install Cosign
+        # 7a. Install Cosign
         - cosign/install:
             version: << parameters.cosign_version >>
             caching: true
             verify_checksums: << parameters.verify_checksums >>
-        # 6b. Sign image
+        # 7b. Sign image
         - cosign/sign:
-            image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
+            image: ${PUBLISHED_IMAGE_DIGEST_REF}
             private_key: << parameters.cosign_private_key >>
             password: << parameters.cosign_password >>
             bundle_format: << parameters.cosign_bundle_format >>
-        # 6c. Verify signature (conditional)
+        # 7c. Verify signature (conditional)
         - when:
             condition: << parameters.verify_signature >>
             steps:
               - cosign/verify:
-                  image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
+                  image: ${PUBLISHED_IMAGE_DIGEST_REF}
                   public_key: << parameters.cosign_public_key >>
                   bundle_format: << parameters.cosign_bundle_format >>
 
-  # 7. SBOM generation with Syft (conditional)
+  # 8. SBOM generation with Syft (conditional)
   - when:
       condition: << parameters.sbom >>
       steps:
-        # 7a. Install Syft
+        # 8a. Install Syft
         - syft/install:
             version: << parameters.syft_version >>
             caching: true
             verify_checksums: << parameters.verify_checksums >>
-        # 7b. Generate SBOM
+        # 8b. Generate SBOM
         - syft/generate_sbom:
-            source: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
+            source: ${PUBLISHED_IMAGE_DIGEST_REF}
             output_formats: << parameters.sbom_format >>
             output_dir: sboms
-        # 7c. Log SBOM (conditional)
+        # 8c. Log SBOM (conditional)
         - when:
             condition: << parameters.log_sbom >>
             steps:
@@ -348,7 +357,7 @@ steps:
                     echo "Generated SBOM:"
                     cat sboms/*
 
-  # 8. SBOM attestation (conditional - requires sign=true and sbom=true)
+  # 9. SBOM attestation (conditional - requires sign=true and sbom=true)
   - when:
       condition:
         and:
@@ -356,33 +365,33 @@ steps:
           - << parameters.sign >>
           - << parameters.sbom >>
       steps:
-        # 8a. Prepare attestation (determine SBOM path and type)
+        # 9a. Prepare attestation (determine SBOM path and type)
         - run:
             name: Prepare SBOM Attestation
             environment:
-              PARAM_IMAGE: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
+              PARAM_IMAGE: ${PUBLISHED_IMAGE_DIGEST_REF}
               PARAM_SBOM_FORMAT: << parameters.sbom_format >>
             command: << include(scripts/docker/prepare_attestation.sh) >>
         - cosign/attest:
-            image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
+            image: ${PUBLISHED_IMAGE_DIGEST_REF}
             predicate: ${SBOM_FILE}
             predicate_type: ${PREDICATE_TYPE}
             private_key: << parameters.cosign_private_key >>
             password: << parameters.cosign_password >>
             bundle_format: << parameters.cosign_bundle_format >>
-        # 8b. Verify attestation (conditional)
+        # 9b. Verify attestation (conditional)
         - when:
             condition: << parameters.verify_attestation >>
             steps:
               - cosign/verify_attestation:
-                  image: << parameters.registry >>/<< parameters.registry_namespace >>/<< parameters.image >>:<< parameters.tag >>
+                  image: ${PUBLISHED_IMAGE_DIGEST_REF}
                   predicate_type: ${PREDICATE_TYPE}
                   public_key: << parameters.cosign_public_key >>
                   bundle_format: << parameters.cosign_bundle_format >>
 
-  # 9. After-publish hook (user customization)
+  # 10. After-publish hook (user customization)
   - steps: << parameters.after_publish >>
 
-  # 10. Registry logout
+  # 11. Registry logout
   - docker_logout:
       registry: << parameters.registry >>
