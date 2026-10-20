@@ -140,10 +140,10 @@ workflows:
 Change `image`, `registry` and `registry_namespace`, and create a `registry-credentials` context with `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` (or pass your own variable names to `registry_username` and `registry_password`). Every job runs on the orb's [`machine` executor](#-executors), so there's no Docker setup to add. The image is tagged with the commit SHA, which is how `scan` and `publish` find it, and pushed as `ghcr.io/myorg/myapp:<commit SHA>` and `:latest`. The scan report is printed in the `scan` job's log and persisted to the workspace under `scan-results/`. To sign the image and attach an SBOM, see [Recipes](#-recipes).
 
 > [!TIP]
-> Upgrading from an earlier version? From 1.0.0, `publish` signs the digest it pushed and names its SBOM file after that digest. From 0.x, v1.0.0 also renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. See [Upgrading](#-upgrading).
+> Upgrading from an earlier version? From 1.0.0, `publish` signs the digest it pushed and names its SBOM file after that digest, and `scan` prints its report before applying `fail_on`. From 0.x, v1.0.0 also renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. See [Upgrading](#-upgrading).
 
 > [!NOTE]
-> `fail_on` is `never` by default, and then the `scan` job never fails on vulnerabilities, only on errors. When `fail_on` does fail the job, the steps after the scan don't run: the report isn't printed or persisted to the workspace. See [Gate on Vulnerabilities and Keep the Report](#gate-on-vulnerabilities-and-keep-the-report).
+> `fail_on` is `never` by default, and then the `scan` job never fails on vulnerabilities, only on errors. When `fail_on` is set, the job prints the report (and uploads it with `store_artifacts: true`) before it applies the threshold, so a failed gate still shows what Grype found. `after_scan` and the workspace persist run only when the gate passes. See [Gate on Vulnerabilities and Keep the Report](#gate-on-vulnerabilities-and-keep-the-report).
 
 > [!IMPORTANT]
 > `publish` is single-platform, and it signs, inventories and attests the digest it pushed rather than a tag. Read [How the Publish Job Works](#-how-the-publish-job-works) before you rely on it for releases.
@@ -187,7 +187,7 @@ Signing and attestation use the private key without the public Rekor transparenc
 
 ### Gate on Vulnerabilities and Keep the Report
 
-`fail_on: high` fails the `scan` job when Grype finds a high or critical vulnerability, so `publish` never runs. The steps after a failed scan don't run, so this `after_scan` step uses `when: always` to print the report either way.
+`fail_on: high` fails the `scan` job when Grype finds a high or critical vulnerability, so `publish` never runs. The job prints the report and, with `store_artifacts: true`, uploads it as a job artifact before it applies the threshold, so the report is there whether or not the gate passes.
 
 ```yaml
 version: 2.1
@@ -207,12 +207,7 @@ workflows:
           image: myapp
           output_format: table
           fail_on: high
-          log_results: false
-          after_scan:
-            - run:
-                name: Show the scan report, even when the gate fails
-                when: always
-                command: cat "${SCAN_OUTPUT_FILE}"
+          store_artifacts: true
       - container-ops-orb/publish:
           requires:
             - security-scan
@@ -223,7 +218,7 @@ workflows:
             - registry-credentials
 ```
 
-Keep the default `output_format: sarif` instead to feed a security dashboard. When the scan passes, the report is persisted to the workspace under `scan-results/`, where a later job can attach it.
+Keep the default `output_format: sarif` instead to feed a security dashboard. The threshold is applied to a JSON copy of the report, `scan-results/<scan target>.grype.json`, which the job writes next to the table; writing both from one scan needs Grype 0.104.1 or later, and the default is 0.119.0. When the gate passes, `scan-results/` is persisted to the workspace, where a later job can attach it.
 
 ### Scan a Published Image
 
@@ -467,7 +462,7 @@ Attaches the workspace, logs in to `registry`, loads the archive `build` saved, 
 
 ### `container-ops-orb/scan`
 
-Scans an image for vulnerabilities with Grype: by default the archive `build` saved, loaded into Docker; or the archive file itself; or an image in a registry. It installs Grype, updates its vulnerability database (both cached between jobs), writes the report to `output_dir`, prints it, and persists `output_dir` to the workspace. It doesn't check out code.
+Scans an image for vulnerabilities with Grype: by default the archive `build` saved, loaded into Docker; or the archive file itself; or an image in a registry. It installs Grype, updates its vulnerability database (both cached between jobs), writes the report to `output_dir`, prints it, optionally uploads it as an artifact, applies `fail_on`, and persists `output_dir` to the workspace. It doesn't check out code.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
@@ -482,15 +477,16 @@ Scans an image for vulnerabilities with Grype: by default the archive `build` sa
 | `grype_version` | `0.119.0` | Grype version to install. |
 | `verify_checksums` | `strict` | SHA-512 verification of the Grype download, passed to `grype/install`: `strict` fails unless the version's checksum is known to the grype orb and matches (recommended), `known_versions` installs versions missing from the table without verification, `false` never verifies (not recommended). With `strict`, a `grype_version` the grype orb has no checksum for fails the job. |
 | `output_format` | `sarif` | Report format: `sarif` (for security tools), `json`, `table` (human-readable), `cyclonedx` (CycloneDX XML) or `cyclonedx-json`. The report's extension is `.sarif`, `.json`, `.txt`, `.cdx.xml` or `.cdx.json`. |
-| `fail_on` | `never` | Fail the job if Grype finds a vulnerability at or above this severity: `negligible`, `low`, `medium`, `high` or `critical`. `never` reports vulnerabilities without failing the job. |
+| `fail_on` | `never` | Fail the job if Grype finds a vulnerability at or above this severity: `negligible`, `low`, `medium`, `high` or `critical`. `never` reports vulnerabilities without failing the job. Grype scans with `fail_on: never`, and the job applies the threshold afterwards, with Grype's `--fail-on` rule (matches Grype didn't ignore; an unknown severity ranks below `negligible`), to a JSON copy of the report: `<scan target>.grype.json` in `output_dir`. With an `output_format` other than `json`, writing both reports from one scan needs `grype_version` 0.104.1 or later. The gate needs `jq` on the executor. |
 | `output_dir` | `scan-results` | Directory for the report, named `<scan target>.grype.<extension>` with each `/` and `:` in the target replaced by `__`, e.g. `myapp__<sha>.grype.sarif`. |
-| `log_results` | `true` | Print the report in the job log. |
+| `log_results` | `true` | Print the report in the job log, before `fail_on` is applied. |
+| `store_artifacts` | `false` | Upload `output_dir` as job artifacts, before `fail_on` is applied, so the report can be downloaded even when the gate fails. |
 | `persist_to_workspace` | `true` | Persist `output_dir` to the workspace for later jobs. |
 | `workspace_root` | `.` | Root directory for that workspace persist. |
 | `attach_workspace` | `true` | Attach the workspace from an earlier job. Required to scan the archive produced by `build`. |
 | `attach_workspace_at` | `~` | Path to attach the workspace at. |
 | `before_scan` | `[]` | Steps to run after the optional workspace attach, and before creating `output_dir`, registry login, loading the image and installing Grype. CircleCI's built-in `pre-steps`, by contrast, run before the workspace attach. |
-| `after_scan` | `[]` | Steps to run after the scan and the optional display of its results, and before registry logout and the optional workspace persist, so files they add to `output_dir` are persisted. Like the steps after them, they don't run when the scan fails (for example because of `fail_on`), unless a `run` step sets `when: always`. CircleCI's built-in `post-steps`, by contrast, run after the workspace persist. |
+| `after_scan` | `[]` | Steps to run after the scan, the optional display and artifact upload of its results and the `fail_on` gate, and before registry logout and the optional workspace persist, so files they add to `output_dir` are persisted. Like the steps after them, they don't run when the scan or the gate fails, unless a `run` step sets `when: always`. CircleCI's built-in `post-steps`, by contrast, run after the workspace persist. |
 | `executor` | `machine` | Executor to run the job on: this orb's [`machine` executor](#container-ops-orbmachine) by default. To change its image or resource class, pass them to it, e.g. `executor: {name: container-ops-orb/machine, resource_class: large}`. |
 
 ## 🧰 Commands
@@ -620,10 +616,15 @@ You can pass any other executor that has Docker available. The jobs don't run `s
 
 ### From 1.0.0 to 1.1.0
 
-No configuration changes are needed. The `publish` job now signs, inventories and attests the digest it pushed instead of `<registry>/<registry_namespace>/<image>:<tag>` (see [Signed by Digest](#signed-by-digest)):
+No configuration changes are needed, unless you pin `grype_version` below 0.104.1 and set `fail_on` with an `output_format` other than `json` (see below). The `publish` job now signs, inventories and attests the digest it pushed instead of `<registry>/<registry_namespace>/<image>:<tag>` (see [Signed by Digest](#signed-by-digest)):
 - With `tags_file`, the file no longer needs to list `tag`.
 - The SBOM file in `sboms/` is named after the digest, such as `myapp@sha256-4c1f….spdx.json`, instead of the tag, such as `myapp-<commit SHA>.spdx.json`. Update any step that names the file instead of using `sboms/`.
 - The job exports `PUBLISHED_IMAGE_DIGEST` and `PUBLISHED_IMAGE_DIGEST_REF`, and fails if Docker recorded no single digest for the push.
+
+The `scan` job now applies `fail_on` after it prints the report, instead of letting Grype fail the scan step:
+- With `fail_on` set, the report is printed even when the gate fails, and the new `store_artifacts: true` also uploads it. The job fails at the new "Apply fail_on Gate" step, with exit code 1, instead of at the scan step with Grype's exit code.
+- With `fail_on` set, `output_dir` also holds `<scan target>.grype.json`, the JSON copy the gate reads, unless `output_format` is already `json`. Writing both reports from one scan needs `grype_version` 0.104.1 or later, and the gate needs `jq`.
+- An `after_scan` step that printed the report with `when: always` because the gate skipped it is no longer needed.
 
 ### From 0.x to 1.0.0
 
@@ -688,7 +689,7 @@ Linux executors with a Docker daemon. The jobs default to this orb's [`machine` 
 
 The `build` job and the `docker_*` commands only run `docker`, so they work wherever Docker does. The `scan` job and the `publish` job's signing, SBOM and attestation steps install Grype, Cosign and Syft through grype-orb, cosign-orb and syft-orb 1.0.0, which pick the Linux amd64 or arm64 build from the executor's CPU and test both. This orb's CI runs its jobs on amd64. To build an arm64 image on amd64, set `platform: linux/arm64` on `build`.
 
-Cosign, Syft and Grype are cached between jobs per tool version, and Grype's vulnerability database is cached too. The Cosign steps also need `jq` on the executor.
+Cosign, Syft and Grype are cached between jobs per tool version, and Grype's vulnerability database is cached too. The Cosign steps, and the `scan` job's `fail_on` gate, also need `jq` on the executor.
 
 ## 🌐 Network Access
 

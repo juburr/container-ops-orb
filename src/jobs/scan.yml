@@ -7,7 +7,9 @@ description: |
   - Scan an archive file directly without loading into Docker
 
   The job can optionally fail based on vulnerability severity thresholds,
-  making it suitable for security gates in CI/CD pipelines.
+  making it suitable for security gates in CI/CD pipelines. The threshold is
+  applied after the report is printed and optionally stored as an artifact,
+  so a failing job still shows what it found.
 
 executor: << parameters.executor >>
 
@@ -136,6 +138,11 @@ parameters:
       The default, never, reports vulnerabilities without failing the job.
       Severity levels from lowest to highest:
       negligible < low < medium < high < critical
+      The scan runs with fail_on never, and the job applies this threshold
+      after printing (log_results) and storing (store_artifacts) the report,
+      reading a JSON copy of it: <scan target>.grype.json in output_dir.
+      With an output_format other than json, writing both reports from one
+      scan needs grype_version 0.104.1 or later. Needs jq on the executor.
 
   # === OUTPUT CONFIGURATION ===
   output_dir:
@@ -148,7 +155,14 @@ parameters:
     type: boolean
     default: true
     description: |
-      Output scan results to the job logs.
+      Output scan results to the job logs, before fail_on is applied.
+
+  store_artifacts:
+    type: boolean
+    default: false
+    description: |
+      Store output_dir as job artifacts, before fail_on is applied, so the
+      report can be downloaded from the job even when the gate fails.
 
   persist_to_workspace:
     type: boolean
@@ -191,11 +205,12 @@ parameters:
     type: steps
     default: []
     description: |
-      Steps to run after the scan and the optional display of its results,
-      and before registry logout and the optional persist of output_dir to
-      the workspace, so files they add to output_dir are persisted. Like the
-      steps after them, they do not run when the scan fails (for example
-      because of fail_on), unless a run step sets when: always.
+      Steps to run after the scan, the optional display and artifact upload
+      of its results and the fail_on gate, and before registry logout and
+      the optional persist of output_dir to the workspace, so files they add
+      to output_dir are persisted. Like the steps after them, they do not
+      run when the scan or the gate fails, unless a run step sets
+      when: always.
       CircleCI's built-in post-steps, by contrast, run after the workspace
       persist, as the job's very last steps.
 
@@ -242,7 +257,7 @@ steps:
   - grype/update_database:
       caching: true
 
-  # 7. Prepare scan target and output file
+  # 7. Prepare scan target and output files
   - run:
       name: Prepare Scan Configuration
       environment:
@@ -254,13 +269,15 @@ steps:
         PARAM_REGISTRY_NAMESPACE: << parameters.registry_namespace >>
         PARAM_OUTPUT_DIR: << parameters.output_dir >>
         PARAM_OUTPUT_FORMAT: << parameters.output_format >>
+        PARAM_FAIL_ON: << parameters.fail_on >>
       command: << include(scripts/grype/prepare_scan.sh) >>
 
-  # 8. Execute Grype scan
+  # 8. Execute Grype scan. fail_on is applied in step 11, once the report is
+  # printed and stored.
   - grype/scan:
       source: ${SCAN_TARGET}
-      output: << parameters.output_format >>=${SCAN_OUTPUT_FILE}
-      fail_on: << parameters.fail_on >>
+      output: ${SCAN_OUTPUTS}
+      fail_on: never
 
   # 9. Log scan results (conditional)
   - when:
@@ -270,17 +287,31 @@ steps:
             name: Display Scan Results
             command: << include(scripts/grype/display_results.sh) >>
 
-  # 10. After-scan hook
+  # 10. Store results as artifacts (conditional)
+  - when:
+      condition: << parameters.store_artifacts >>
+      steps:
+        - store_artifacts:
+            path: << parameters.output_dir >>
+
+  # 11. Apply the vulnerability gate
+  - run:
+      name: Apply fail_on Gate
+      environment:
+        PARAM_FAIL_ON: << parameters.fail_on >>
+      command: << include(scripts/grype/apply_fail_on.sh) >>
+
+  # 12. After-scan hook
   - steps: << parameters.after_scan >>
 
-  # 11. Registry logout (conditional)
+  # 13. Registry logout (conditional)
   - when:
       condition: << parameters.registry >>
       steps:
         - docker_logout:
             registry: << parameters.registry >>
 
-  # 12. Persist results to workspace (conditional)
+  # 14. Persist results to workspace (conditional)
   - when:
       condition: << parameters.persist_to_workspace >>
       steps:

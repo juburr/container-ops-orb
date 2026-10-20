@@ -17,6 +17,9 @@
 # - the publish job's digest step finds the digest Docker recorded for the
 #   target repository, also under Docker Hub's short names, and fails
 #   instead of guessing when there is none or more than one
+# - the scan job asks Grype for a JSON report only when fail_on is set, and
+#   its gate applies Grype's --fail-on rule to that report, failing closed
+#   on a report it can't read
 # - a value a script exports to $BASH_ENV comes back unchanged when a later
 #   step sources it, even with a quote and a $(...) in it
 #
@@ -469,6 +472,83 @@ digest_case "fails on a digest that is not sha256" ghcr.io/myorg/myapp \
     $'ghcr.io/myorg/myapp@sha512:abc\n' "fail:is not a sha256 digest"
 unset DOCKER_REPO_DIGESTS
 
+# --- scan job: report list and fail_on gate ---------------------------------
+# outputs_case NAME FORMAT FAIL_ON WANT_OUTPUTS WANT_GATE_FILE
+outputs_case() {
+    local name=$1 got
+    export PARAM_IMAGE=myapp PARAM_TAG=t1 PARAM_IMAGE_SOURCE=local PARAM_ARCHIVE_DIR=archives
+    export PARAM_REGISTRY="" PARAM_REGISTRY_NAMESPACE="" PARAM_OUTPUT_DIR=out
+    export PARAM_OUTPUT_FORMAT=$2 PARAM_FAIL_ON=$3
+    run grype/prepare_scan.sh
+    # shellcheck source=/dev/null # written by the script under test
+    got=$(source "${BASH_ENV}" 2> /dev/null && printf '%s|%s' "${SCAN_OUTPUTS:-}" "${SCAN_GATE_FILE-(unset)}") || got=""
+    if [[ "${STATUS}" -eq 0 && "${got}" == "$4|$5" ]]; then
+        pass "prepare_scan: ${name}"
+    else
+        fail "prepare_scan: ${name} (status ${STATUS}, got '${got}', want '$4|$5'): ${OUTPUT}"
+    fi
+}
+outputs_case "one report without a gate" sarif never "sarif=out/myapp__t1.grype.sarif" ""
+outputs_case "a JSON copy for the gate" sarif high \
+    "sarif=out/myapp__t1.grype.sarif,json=out/myapp__t1.grype.json" "out/myapp__t1.grype.json"
+outputs_case "the JSON report itself for the gate" json low "json=out/myapp__t1.grype.json" "out/myapp__t1.grype.json"
+
+export PARAM_OUTPUT_DIR="a,b" PARAM_OUTPUT_FORMAT=table PARAM_FAIL_ON=critical
+run grype/prepare_scan.sh
+if [[ "${STATUS}" -ne 0 && "${OUTPUT}" == *"can't contain a comma"* && ! -s "${BASH_ENV}" ]]; then
+    pass "prepare_scan: a comma in the report path fails when two reports are written"
+else
+    fail "prepare_scan: comma in the report path (status ${STATUS}): ${OUTPUT}"
+fi
+
+# gate_case NAME FAIL_ON REPORT_JSON WANT(pass|fail) [WANT_OUTPUT]
+# REPORT_JSON "-" means no report file.
+gate_case() {
+    local name=$1 report=$3 want=$4 expect=${5:-}
+    export PARAM_FAIL_ON=$2
+    if [[ "${report}" == "-" ]]; then
+        export SCAN_GATE_FILE="${TMP}/work/missing.json"
+        run grype/apply_fail_on.sh
+    else
+        export SCAN_GATE_FILE="${TMP}/work/report.json"
+        # shellcheck disable=SC2016 # expanded by run's eval
+        run grype/apply_fail_on.sh 'printf "%s" "${GATE_REPORT}" > report.json'
+    fi
+    if { [[ "${want}" == pass && "${STATUS}" -eq 0 ]] || [[ "${want}" == fail && "${STATUS}" -ne 0 ]]; } \
+        && [[ "${OUTPUT}" == *"${expect}"* ]]; then
+        pass "apply_fail_on: ${name}"
+    else
+        fail "apply_fail_on: ${name} (want ${want}, status ${STATUS}): ${OUTPUT}"
+    fi
+    unset SCAN_GATE_FILE
+}
+match() { printf '{"vulnerability":{"id":"%s","severity":"%s"},"artifact":{"name":"pkg","version":"1.0"}}' "$1" "$2"; }
+report() {
+    local IFS=,
+    printf '{"matches":[%s],"ignoredMatches":[%s]}' "$1" "${2:-}"
+}
+export GATE_REPORT
+GATE_REPORT=$(report "$(match CVE-1 Critical),$(match CVE-2 Low)")
+gate_case "fails at or above the threshold" high "${GATE_REPORT}" fail "CVE-1 (Critical) in pkg 1.0"
+gate_case "counts the severity equal to the threshold" low "${GATE_REPORT}" fail "2 vulnerability match(es)"
+GATE_REPORT=$(report "$(match CVE-3 Medium),$(match CVE-4 Unknown),$(match CVE-5 Negligible)")
+gate_case "passes below the threshold" high "${GATE_REPORT}" pass "No vulnerabilities at or above high"
+GATE_REPORT=$(report "$(match CVE-4 Unknown)")
+gate_case "ranks an unknown severity below negligible" negligible "${GATE_REPORT}" pass
+GATE_REPORT=$(report "$(match CVE-6 high)")
+gate_case "ignores the severity's case" high "${GATE_REPORT}" fail "CVE-6"
+GATE_REPORT=$(report "" "$(match CVE-7 Critical)")
+gate_case "leaves out matches Grype ignored" negligible "${GATE_REPORT}" pass
+GATE_REPORT=$(report "")
+gate_case "passes an empty report" critical "${GATE_REPORT}" pass
+gate_case "never passes without a report" never - pass "without failing the job"
+gate_case "fails without a report" high - fail "was not found"
+GATE_REPORT='{"matches": ['
+gate_case "fails on a report that isn't JSON" high "${GATE_REPORT}" fail "Could not read"
+GATE_REPORT='{"descriptor": {}}'
+gate_case "fails on a report without matches" high "${GATE_REPORT}" fail "Could not read"
+unset GATE_REPORT
+
 # --- exports to $BASH_ENV ----------------------------------------------------
 # Later steps source $BASH_ENV, so a value exported there must come back
 # unchanged and run nothing. Wrapped in single quotes instead of quoted with
@@ -542,9 +622,12 @@ check_exports docker/prepare_attestation.sh SBOM_FILE "sboms/${VALUE}.spdx.json"
 
 export PARAM_IMAGE="${VALUE}" PARAM_TAG="${VALUE}" PARAM_IMAGE_SOURCE=local PARAM_ARCHIVE_DIR=archives
 export PARAM_REGISTRY="" PARAM_REGISTRY_NAMESPACE="" PARAM_OUTPUT_DIR="${VALUE}" PARAM_OUTPUT_FORMAT=sarif
+export PARAM_FAIL_ON=high
 run grype/prepare_scan.sh
 check_exports grype/prepare_scan.sh SCAN_TARGET "${VALUE}:${VALUE}" \
-    SCAN_OUTPUT_FILE "${VALUE}/${VALUE}__${VALUE}.grype.sarif" SANITIZED_IMAGE_NAME "${VALUE}__${VALUE}"
+    SCAN_OUTPUT_FILE "${VALUE}/${VALUE}__${VALUE}.grype.sarif" SANITIZED_IMAGE_NAME "${VALUE}__${VALUE}" \
+    SCAN_OUTPUTS "sarif=${VALUE}/${VALUE}__${VALUE}.grype.sarif,json=${VALUE}/${VALUE}__${VALUE}.grype.json" \
+    SCAN_GATE_FILE "${VALUE}/${VALUE}__${VALUE}.grype.json"
 
 # Child bash processes source $BASH_ENV when they start; leave none behind.
 rm -f "${BASH_ENV}"
