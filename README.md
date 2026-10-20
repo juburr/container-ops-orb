@@ -114,7 +114,7 @@ Build the image in your repository's `Dockerfile`, scan it, and push it to your 
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   build-scan-publish:
@@ -140,7 +140,7 @@ workflows:
 Change `image`, `registry` and `registry_namespace`, and create a `registry-credentials` context with `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` (or pass your own variable names to `registry_username` and `registry_password`). Every job runs on the orb's [`machine` executor](#-executors), so there's no Docker setup to add. The image is tagged with the commit SHA, which is how `scan` and `publish` find it, and pushed as `ghcr.io/myorg/myapp:<commit SHA>` and `:latest`. The scan report is printed in the `scan` job's log and persisted to the workspace under `scan-results/`. To sign the image and attach an SBOM, see [Recipes](#-recipes).
 
 > [!TIP]
-> Upgrading from an earlier version? From 1.0.0, `publish` signs the digest it pushed and names its SBOM file after that digest, and `scan` prints its report before applying `fail_on`. From 0.x, v1.0.0 also renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. See [Upgrading](#-upgrading).
+> Upgrading from 0.x? v1.0.0 renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. `publish` signs the digest it pushed and names its SBOM file after that digest, and `scan` prints its report before applying `fail_on`. See [Upgrading](#-upgrading).
 
 > [!NOTE]
 > `fail_on` is `never` by default, and then the `scan` job never fails on vulnerabilities, only on errors. When `fail_on` is set, the job prints the report (and uploads it with `store_artifacts: true`) before it applies the threshold, so a failed gate still shows what Grype found. `after_scan` and the workspace persist run only when the gate passes. See [Gate on Vulnerabilities and Keep the Report](#gate-on-vulnerabilities-and-keep-the-report).
@@ -158,7 +158,7 @@ Sign the pushed image with a Cosign key pair, generate an SPDX SBOM with Syft, a
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   secure-publish:
@@ -193,7 +193,7 @@ Signing and attestation use the private key without the public Rekor transparenc
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   secure-build:
@@ -230,7 +230,7 @@ Scan an image that is already in a registry, for example from a scheduled pipeli
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   scan-published:
@@ -257,7 +257,7 @@ Log in to a private registry before building, and pull base images from it witho
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   build-workflow:
@@ -284,7 +284,7 @@ Push release-style tags (`1.2.3`, `1.2`, `1` and `latest` for the newest `v1.2.3
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
   tagger: juburr/container-tagger-orb@1.0.0
 
 workflows:
@@ -341,7 +341,7 @@ To deploy exactly the image that was signed, hand the digest to a later job thro
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.0.0
 
 workflows:
   release:
@@ -616,20 +616,6 @@ You can pass any other executor that has Docker available. The jobs don't run `s
 
 ## 📦 Upgrading
 
-### From 1.0.0 to 1.1.0
-
-No configuration changes are needed, unless you pin `grype_version` below 0.104.1 and set `fail_on` with an `output_format` other than `json` (see below). The `publish` job now signs, inventories and attests the digest it pushed instead of `<registry>/<registry_namespace>/<image>:<tag>` (see [Signed by Digest](#signed-by-digest)):
-- With `tags_file`, the file no longer needs to list `tag`.
-- The SBOM file in `sboms/` is named after the digest, such as `myapp@sha256-4c1f….spdx.json`, instead of the tag, such as `myapp-<commit SHA>.spdx.json`. Update any step that names the file instead of using `sboms/`.
-- The job exports `PUBLISHED_IMAGE_DIGEST` and `PUBLISHED_IMAGE_DIGEST_REF`, and fails if Docker recorded no single digest for the push.
-
-The `scan` job now applies `fail_on` after it prints the report, instead of letting Grype fail the scan step:
-- With `fail_on` set, the report is printed even when the gate fails, and the new `store_artifacts: true` also uploads it. The job fails at the new "Apply fail_on Gate" step, with exit code 1, instead of at the scan step with Grype's exit code.
-- With `fail_on` set, `output_dir` also holds `<scan target>.grype.json`, the JSON copy the gate reads, unless `output_format` is already `json`. Writing both reports from one scan needs `grype_version` 0.104.1 or later, and the gate needs `jq`.
-- An `after_scan` step that printed the report with `when: always` because the gate skipped it is no longer needed.
-
-The `scan` job now uses grype-orb 1.0.1, whose vulnerability database cache works. In 1.0.0 it never picked up a newer database, so every scan downloaded the database. Scans now reuse the cached database until Anchore publishes a newer one. Each cached database takes about 500 MiB of cache storage, roughly one a day.
-
 ### From 0.x to 1.0.0
 
 v1.0.0 renames a command, the executor and several parameters. Update your config as follows:
@@ -657,10 +643,19 @@ v1.0.0 renames a command, the executor and several parameters. Update your confi
 The `before_*` and `after_*` steps run at the same points as the old `pre_steps` and `post_steps`; each job's parameter descriptions say exactly where. If your context defines `DOCKER_USERNAME` and `DOCKER_PASSWORD`, rename those variables or pass their names to `username` / `password` or `registry_username` / `registry_password`.
 
 Behavior changes:
-- The jobs use cosign-orb, syft-orb, grype-orb and container-tagger-orb 1.0.0, and install newer tools by default: Cosign 3.1.3 instead of 2.4.0, Syft 1.52.0 instead of 1.11.0, and Grype 0.119.0 instead of 0.87.0. Pin `cosign_version`, `syft_version` or `grype_version` to keep an older release.
+- The `publish` job signs, inventories and attests the digest it pushed instead of `<registry>/<registry_namespace>/<image>:<tag>` (see [Signed by Digest](#signed-by-digest)):
+  - With `tags_file`, the file no longer needs to list `tag`.
+  - The SBOM file in `sboms/` is named after the digest, such as `myapp@sha256-4c1f….spdx.json`. Update any step that names the file instead of using `sboms/`.
+  - The job exports `PUBLISHED_IMAGE_DIGEST` and `PUBLISHED_IMAGE_DIGEST_REF`, and fails if Docker recorded no single digest for the push.
+- The `scan` job applies `fail_on` after it prints the report, instead of letting Grype fail the scan step:
+  - With `fail_on` set, the report is printed even when the gate fails, and the new `store_artifacts: true` also uploads it. The job fails at the new "Apply fail_on Gate" step, with exit code 1, instead of at the scan step with Grype's exit code.
+  - With `fail_on` set, `output_dir` also holds `<scan target>.grype.json`, the JSON copy the gate reads, unless `output_format` is already `json`. Writing both reports from one scan needs `grype_version` 0.104.1 or later, and the gate needs `jq`.
+  - A `post_steps` step that printed the report with `when: always` because the gate skipped it isn't needed in `after_scan`.
+- The jobs use cosign-orb, syft-orb and container-tagger-orb 1.0.0 and grype-orb 1.0.1, and install newer tools by default: Cosign 3.1.3 instead of 2.4.0, Syft 1.52.0 instead of 1.11.0, and Grype 0.119.0 instead of 0.87.0. Pin `cosign_version`, `syft_version` or `grype_version` to keep an older release.
   - Cosign 3 stores signatures and attestations as Sigstore bundles, OCI referrers of the image, instead of the `sha256-<hex>.sig` and `.att` tags. Set the new `cosign_bundle_format: legacy` to keep those tags, for example while a verifier still runs Cosign 2.5 or earlier.
   - `sbom: true` works with the default `syft_version`. Before, the syft orb ran Syft 1.11.0 with `--enrich all`, a flag added in Syft 1.13.0, so it failed unless you set a newer version.
   - Grype 0.88.0 and later download the vulnerability database from `grype.anchore.io` instead of `toolbox-data.anchore.io`. See [Network Access](#-network-access).
+  - The vulnerability database cache works. In 0.x it never picked up a newer database, so every scan downloaded the database. Scans now reuse the cached database until Anchore publishes a newer one. Each cached database takes about 500 MiB of cache storage, roughly one a day.
 - Grype, Cosign and Syft are installed into `$HOME/bin`, the 1.0.0 orbs' default, instead of `/home/circleci/bin`. On CircleCI's images, that's the same directory.
 - `build_args` and `docker_pull`'s `images` (the `build` job's `pull_base_images`) are split on any whitespace, spaces or newlines. Before, a space-separated list such as `A=1 B=2` reached Docker as a single value.
 - `docker_save` (and the `build` job) fail when `persist_to_workspace` is true and `archive_dir` is not `<workspace_root>/images`. The workspace step can persist only that directory. Before, it persisted `<workspace_root>/images` anyway, so the archive was missing from the workspace, or the step failed when that directory did not exist.
