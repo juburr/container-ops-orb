@@ -8,7 +8,7 @@ orbs:
   # Import tagger orb directly for integration testing
   tagger: juburr/container-tagger-orb@1.0.0
   # Import grype orb directly for scan testing
-  grype: juburr/grype-orb@1.0.0
+  grype: juburr/grype-orb@1.0.1
   # Import cosign orb directly to generate test signing keys
   cosign: juburr/cosign-orb@1.0.0
 
