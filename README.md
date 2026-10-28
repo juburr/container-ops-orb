@@ -2,27 +2,30 @@
 
 <img src="assets/logos/container-ops-orb-512px.png" width="256" alt="Container Ops Orb logo: a round badge showing a container port at night, with a crane lifting a shipping container, a robotic arm, a launching rocket and a glowing ring at the center">
 
-# Container Ops Orb for CircleCI
+# Container Ops Orb for CircleCI and GitHub Actions
 
 ### Build, scan, sign and publish container images with three CircleCI jobs.
 
 Build an image with Docker once, gate it on a [Grype](https://github.com/anchore/grype) vulnerability scan, then push it, sign it with [Cosign](https://github.com/sigstore/cosign)<br>
 and attest a [Syft](https://github.com/anchore/syft) SBOM to it, each switched on with a single parameter.<br>
+On GitHub Actions, the nine Docker steps the jobs are made of are actions of their own.<br>
 Build once, publish the same image · SHA-512 verified tool installs, strict by default · Credentials passed by variable name
 
 [![CircleCI Build Status](https://circleci.com/gh/juburr/container-ops-orb.svg?style=shield "CircleCI Build Status")](https://circleci.com/gh/juburr/container-ops-orb)
+[![GitHub Actions Status](https://github.com/juburr/container-ops-orb/actions/workflows/actions.yml/badge.svg?branch=main "GitHub Actions Status")](https://github.com/juburr/container-ops-orb/actions/workflows/actions.yml)
 [![CircleCI Orb Version](https://badges.circleci.com/orbs/juburr/container-ops-orb.svg)](https://circleci.com/developer/orbs/orb/juburr/container-ops-orb)
 [![GitHub License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 [![CircleCI Community](https://img.shields.io/badge/community-CircleCI%20Discuss-343434.svg)](https://discuss.circleci.com/c/ecosystem/orbs)
 
+![CircleCI orb and GitHub Actions](https://img.shields.io/badge/CI-CircleCI%20%7C%20GitHub%20Actions-F97316?style=for-the-badge)
 ![Jobs for build, scan and publish](https://img.shields.io/badge/jobs-build%20%7C%20scan%20%7C%20publish-7C3AED?style=for-the-badge&logo=docker&logoColor=white)
 ![Signing, SBOMs and scans with Cosign, Syft and Grype](https://img.shields.io/badge/supply%20chain-Cosign%20%7C%20Syft%20%7C%20Grype-0EA5E9?style=for-the-badge)
 ![SHA-512 verified tool installs by default](https://img.shields.io/badge/SHA--512-strict%20by%20default-16A34A?style=for-the-badge)
 ![No sudo required](https://img.shields.io/badge/sudo-not%20required-DB2777?style=for-the-badge)
 
-**[Quick Start](#-quick-start)** · **[Features](#-why-container-ops-orb)** · **[Recipes](#-recipes)** · **[Jobs](#-jobs)** · **[Commands](#-commands)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
+**[Quick Start](#-quick-start)** · **[Features](#-why-container-ops-orb)** · **[Recipes](#-recipes)** · **[Jobs](#-jobs)** · **[CircleCI Commands](#-circleci-commands)** · **[GitHub Actions](#-github-actions)** · **[Upgrading](#-upgrading)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
 
-<sub>A community-maintained orb. [Contributions are welcome!](#-contributing)</sub>
+<sub>A community-maintained CircleCI orb and set of GitHub Actions. [Contributions are welcome!](#-contributing)</sub>
 
 </div>
 
@@ -56,7 +59,7 @@ Registry and Cosign credentials are environment variable <i>names</i>. The passw
 </td>
 <td width="33%" valign="top">
 🧰 <b>Jobs or building blocks</b><br><br>
-<code>before_*</code> and <code>after_*</code> steps run at documented points inside each job, and the nine <code>docker_*</code> commands the jobs are made of are yours to compose into your own jobs.
+<code>before_*</code> and <code>after_*</code> steps run at documented points inside each job, and the nine <code>docker_*</code> commands the jobs are made of are yours to compose into your own jobs, or, as <a href="#-github-actions">GitHub Actions</a>, into a GitHub workflow.
 </td>
 </tr>
 </table>
@@ -114,7 +117,7 @@ Build the image in your repository's `Dockerfile`, scan it, and push it to your 
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   build-scan-publish:
@@ -139,6 +142,55 @@ workflows:
 
 Change `image`, `registry` and `registry_namespace`, and create a `registry-credentials` context with `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` (or pass your own variable names to `registry_username` and `registry_password`). Every job runs on the orb's [`machine` executor](#-executors), so there's no Docker setup to add. The image is tagged with the commit SHA, which is how `scan` and `publish` find it, and pushed as `ghcr.io/myorg/myapp:<commit SHA>` and `:latest`. The scan report is printed in the `scan` job's log and persisted to the workspace under `scan-results/`. To sign the image and attach an SBOM, see [Recipes](#-recipes).
 
+On GitHub Actions, the jobs aren't available, but the commands they're made of are, as actions of the same names. This workflow, such as `.github/workflows/build-scan-publish.yml`, does what the jobs above do in one job, with [grype-orb](https://github.com/juburr/grype-orb)'s actions for the scan:
+
+```yaml
+name: Build, scan and publish
+
+on: push
+
+jobs:
+  build-scan-publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: juburr/container-ops-orb/actions/docker_build@v1.1.0
+        with:
+          image: myapp
+          tags: ${{ github.sha }}
+      - uses: juburr/grype-orb/actions/install@v1.1.1
+      - uses: juburr/grype-orb/actions/update_database@v1.1.1
+      - uses: juburr/grype-orb/actions/scan@v1.1.1
+        with:
+          source: docker:myapp:${{ github.sha }}
+          fail_on: high
+      # Reads the credentials from the variables set in this step's env.
+      - uses: juburr/container-ops-orb/actions/docker_login@v1.1.0
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          registry: ghcr.io
+      - uses: juburr/container-ops-orb/actions/docker_tag@v1.1.0
+        with:
+          source_image: myapp:${{ github.sha }}
+          target_image: ghcr.io/myorg/myapp
+          tags: ${{ github.sha }} latest
+      - uses: juburr/container-ops-orb/actions/docker_push@v1.1.0
+        with:
+          image: ghcr.io/myorg/myapp
+          tags: ${{ github.sha }} latest
+      - uses: juburr/container-ops-orb/actions/docker_logout@v1.1.0
+        if: always()
+        with:
+          registry: ghcr.io
+```
+
+The job's `GITHUB_TOKEN` can push to the repository's own GHCR packages with `packages: write`. Without the CircleCI CLI, nothing expands `$NAME` in the actions' inputs, so `tags` is set with an expression: `docker_build`'s default, `${CIRCLE_SHA1}`, fails the step. See [GitHub Actions](#-github-actions) for how the actions map to the orb's commands, and how `docker_save` and `docker_load` move an image between jobs.
+
 > [!TIP]
 > Upgrading from 0.x? v1.0.0 renames a command, the executor and several parameters, changes `fail_on`'s default from empty to `never`, and installs newer Cosign, Syft and Grype by default. `publish` signs the digest it pushed and names its SBOM file after that digest, and `scan` prints its report before applying `fail_on`. See [Upgrading](#-upgrading).
 
@@ -158,7 +210,7 @@ Sign the pushed image with a Cosign key pair, generate an SPDX SBOM with Syft, a
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   secure-publish:
@@ -193,7 +245,7 @@ Signing and attestation use the private key without the public Rekor transparenc
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   secure-build:
@@ -230,7 +282,7 @@ Scan an image that is already in a registry, for example from a scheduled pipeli
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   scan-published:
@@ -257,7 +309,7 @@ Log in to a private registry before building, and pull base images from it witho
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   build-workflow:
@@ -284,7 +336,7 @@ Push release-style tags (`1.2.3`, `1.2`, `1` and `latest` for the newest `v1.2.3
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
   tagger: juburr/container-tagger-orb@1.0.0
 
 workflows:
@@ -341,7 +393,7 @@ To deploy exactly the image that was signed, hand the digest to a later job thro
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.0
 
 workflows:
   release:
@@ -416,7 +468,7 @@ Checks out your code and builds an image with `docker build`, or `docker buildx 
 | `registry` | *(empty)* | Registry to log in to before building, for private base images, such as `ghcr.io`, `docker.io`, `gcr.io` or `123456789.dkr.ecr.us-east-1.amazonaws.com`. Empty skips login. |
 | `registry_username` | `REGISTRY_USERNAME` | Name of the environment variable holding the registry username. Only used when `registry` is set. |
 | `registry_password` | `REGISTRY_PASSWORD` | Name of the environment variable holding the registry password or access token. Only used when `registry` is set. |
-| `archive` | `true` | Save the built image (`<image>:<first tag>`) with `docker save` to `<archive_dir>/<image>-img.tar`, with each `/` in `image` replaced by `-`. |
+| `archive` | `true` | Save the built image (`<image>:<first tag>`) with `docker save` to `<archive_dir>/<image>-img.tar`, with each `/` and `:` in `image` replaced by `-`. |
 | `archive_dir` | `~/images` | Directory for the archive: an absolute path, a path starting with `~`, or a path relative to the working directory. When `persist_to_workspace` is true, it must be `<workspace_root>/images` (the default with the default `workspace_root`), or the job fails. |
 | `persist_to_workspace` | `true` | Persist the archive to the workspace for later jobs. Only applies when `archive` is true. It persists the `images` directory under `workspace_root`, so `archive_dir` must be `<workspace_root>/images`. |
 | `workspace_root` | `~` | Root directory of the persisted workspace. A downstream job that attaches the workspace at `<path>` finds the archive in `<path>/images`. |
@@ -491,9 +543,9 @@ Scans an image for vulnerabilities with Grype: by default the archive `build` sa
 | `after_scan` | `[]` | Steps to run after the scan, the optional display and artifact upload of its results and the `fail_on` gate, and before registry logout and the optional workspace persist, so files they add to `output_dir` are persisted. Like the steps after them, they don't run when the scan or the gate fails, unless a `run` step sets `when: always`. CircleCI's built-in `post-steps`, by contrast, run after the workspace persist. |
 | `executor` | `machine` | Executor to run the job on: this orb's [`machine` executor](#container-ops-orbmachine) by default. To change its image or resource class, pass them to it, e.g. `executor: {name: container-ops-orb/machine, resource_class: large}`. |
 
-## 🧰 Commands
+## 🧰 CircleCI Commands
 
-The jobs are built from these commands, and you can use them in your own jobs. Each needs `docker` on the executor.
+The jobs are built from these commands, and you can use them in your own jobs. Each needs `docker` on the executor. Each is also a [GitHub Action](#-github-actions).
 
 ### `container-ops-orb/docker_build`
 
@@ -530,7 +582,7 @@ Loads an image from the archive `docker_save` wrote, `<archive_dir>/<image>-img.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `image` | *required* | Image name (repository) that was saved, without a tag, such as `myapp` or `myorg/myapp`. It selects the archive `<image>-img.tar`, with each `/` replaced by `-`. |
+| `image` | *required* | Image name (repository) that was saved, without a tag, such as `myapp` or `myorg/myapp`. It selects the archive `<image>-img.tar`, with each `/` and `:` replaced by `-`. |
 | `archive_dir` | `~/images` | Directory that holds the archive: absolute, starting with `~`, or relative to the working directory. The default matches `docker_save`'s default with the workspace attached at `~`. |
 
 ### `container-ops-orb/docker_login`
@@ -574,7 +626,7 @@ Saves an image with `docker save` to `<archive_dir>/<image>-img.tar`, creating `
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `image` | *required* | Image name (repository) to save, without a tag. The archive is named `<image>-img.tar`, with each `/` replaced by `-`. |
+| `image` | *required* | Image name (repository) to save, without a tag. The archive is named `<image>-img.tar`, with each `/` and `:` replaced by `-`. |
 | `tag` | *(empty)* | Tag to save. Empty uses `BUILT_IMAGE_TAG` from `docker_build`, or `latest` if that isn't set. |
 | `archive_dir` | `~/images` | Directory to save the archive in: absolute, starting with `~`, or relative to the working directory. When `persist_to_workspace` is true, it must be `<workspace_root>/images` (the default with the default `workspace_root`). |
 | `persist_to_workspace` | `true` | Persist the `images` directory under `workspace_root` to the workspace. To save elsewhere, set this to false and add your own `persist_to_workspace` step. |
@@ -591,6 +643,48 @@ Applies each tag to a local image as `<target_image>:<tag>`, ready for `docker_p
 | `tags` | *required* | Tags to apply, separated by spaces, such as `latest v1.0.0 ${CIRCLE_SHA1}`. |
 
 Environment variables (such as `${CIRCLE_SHA1}`) are expanded in every string parameter of these commands except `docker_build`'s `no_output_timeout` and `docker_save`'s `workspace_root`, and the jobs pass their image, tag, path and registry parameters through to these commands or to the composed orbs' commands, which expand them too. `docker_login`'s `username` and `password` are variable names and aren't expanded. The jobs' `attach_workspace_at` and `workspace_root`, which only feed CircleCI's workspace steps, are used as written. `tags` in `docker_build`, `docker_push` and `docker_tag` is read from its first line.
+
+## ⚡ GitHub Actions
+
+Each of the orb's commands has a GitHub Action of the same name. The actions run the same scripts as the orb, so they build, save, load, tag and push the same way, and take the same inputs with the same defaults. The `build`, `scan` and `publish` jobs are CircleCI jobs and have no actions: compose the actions into a job of your own, as the [Quick Start](#-quick-start) does, with [grype-orb](https://github.com/juburr/grype-orb)'s actions for the scan. The `publish` job's signing and SBOM steps come from [cosign-orb](https://github.com/juburr/cosign-orb) and [syft-orb](https://github.com/juburr/syft-orb), which have GitHub Actions too (`juburr/cosign-orb/actions/sign@v1.1.0`, `juburr/syft-orb/actions/generate_sbom@v1.1.1` and others) to sign the pushed image and generate its SBOM after `docker_push`.
+
+| Action | Orb command | Inputs |
+| --- | --- | --- |
+| `juburr/container-ops-orb/actions/docker_build` | [`container-ops-orb/docker_build`](#container-ops-orbdocker_build) | `image` (required), `tags`, `dockerfile`, `build_context`, `target`, `build_args`, `extra_args`, `oci_labels`, `image_version`, `pull`, `platform`, `buildx_builder`, `no_output_timeout` |
+| `juburr/container-ops-orb/actions/docker_inspect` | [`container-ops-orb/docker_inspect`](#container-ops-orbdocker_inspect) | `image` (required), `tag` |
+| `juburr/container-ops-orb/actions/docker_load` | [`container-ops-orb/docker_load`](#container-ops-orbdocker_load) | `image` (required), `archive_dir` |
+| `juburr/container-ops-orb/actions/docker_login` | [`container-ops-orb/docker_login`](#container-ops-orbdocker_login) | `registry` (required), `username`, `password` |
+| `juburr/container-ops-orb/actions/docker_logout` | [`container-ops-orb/docker_logout`](#container-ops-orbdocker_logout) | `registry` (required) |
+| `juburr/container-ops-orb/actions/docker_pull` | [`container-ops-orb/docker_pull`](#container-ops-orbdocker_pull) | `images` (required) |
+| `juburr/container-ops-orb/actions/docker_push` | [`container-ops-orb/docker_push`](#container-ops-orbdocker_push) | `image`, `tags` (required) |
+| `juburr/container-ops-orb/actions/docker_save` | [`container-ops-orb/docker_save`](#container-ops-orbdocker_save) | `image` (required), `tag`, `archive_dir`, `persist_to_workspace`, `workspace_root` |
+| `juburr/container-ops-orb/actions/docker_tag` | [`container-ops-orb/docker_tag`](#container-ops-orbdocker_tag) | `source_image`, `target_image`, `tags` (required) |
+
+How the actions differ from the orb's commands:
+
+- **Versions.** An action is referenced by the repository's release tag, such as `v1.1.0`, the same tag the orb is published from. There is no moving major tag such as `v1` yet. For the strongest pinning, use the tag's commit SHA: `juburr/container-ops-orb/actions/docker_push@<sha> # v1.1.0`.
+- **Credentials.** `docker_login` takes the *names* of environment variables, as the command does. Set those variables in the `env` of the step that uses the action, from secrets, as the Quick Start does. The password reaches `docker login` on stdin, never on a command line.
+- **Environment variables.** The orb expands `$NAME` in its string parameters with the CircleCI CLI, which GitHub's runners don't have, so the actions take values as they are: a `$HOME` in `extra_args` reaches Docker as written. Use GitHub's expressions instead, such as `tags: ${{ github.sha }}`. `docker_build`'s default `tags`, `${CIRCLE_SHA1}`, would reach Docker unexpanded, so the step fails before it runs Docker: set `tags`. A leading `~` in `archive_dir` and `workspace_root` is still the home directory.
+- **OCI labels.** Without CircleCI's variables, `docker_build` takes `OCI_REVISION` from `GITHUB_SHA`, `OCI_VERSION` (when `image_version` is empty) from `GITHUB_REF_NAME` when the workflow runs for a tag, otherwise `dev`, and `OCI_SOURCE` from `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY`, such as `https://github.com/myorg/myapp`.
+- **Booleans.** CircleCI checks the orb's booleans before any step runs. The actions' inputs are plain strings, which the scripts check before running Docker: `oci_labels`, `pull` and `persist_to_workspace` take `true` or `false`.
+- **Exported variables.** `BUILT_IMAGE_FULL`, `ARCHIVED_IMAGE_PATH`, `LOADED_IMAGE`, `TAGGED_IMAGE_FULL`, `PUSHED_IMAGE_FULL` and the others reach later steps through `GITHUB_ENV`. Read them as `${{ env.PUSHED_IMAGE_FULL }}` in an input, or `${PUSHED_IMAGE_FULL}` in a `run` step.
+- **Moving an image between jobs.** With `persist_to_workspace` (the default), `docker_save` uploads the archive with [`actions/upload-artifact`](https://github.com/actions/upload-artifact) as an artifact named `<image>-img`, with each `/` and `:` replaced by `-`, where the command persists it to the workspace. A later job downloads it into `~/images` and loads it:
+
+  ```yaml
+  - uses: actions/download-artifact@v8
+    with:
+      name: myorg-myapp-img
+      path: ~/images
+  - uses: juburr/container-ops-orb/actions/docker_load@v1.1.0
+    with:
+      image: myorg/myapp
+  ```
+
+  `archive_dir` must still be `<workspace_root>/images`, as on CircleCI, though `workspace_root` sets nothing else here. A run holds one artifact of a name, so when several jobs of a run save the same image, such as a matrix, set `persist_to_workspace: false` and upload `${{ env.ARCHIVED_IMAGE_PATH }}` under names of your own. The artifact is kept for the repository's artifact retention period, 90 days unless changed.
+- **`no_output_timeout`** is CircleCI's and has no effect. Set `timeout-minutes` on the step or the job instead.
+- **Runners.** The actions need `docker` and bash, which GitHub's Ubuntu runners have. CI runs every action on `ubuntu-24.04` and `ubuntu-24.04-arm`, including a build for the other platform, the login, tag, push and logout actions against a local registry that requires a login, and `docker_save`'s artifact loaded in another job.
+
+The actions are composite actions in [`actions/`](actions), next to the orb's source. Each passes its inputs to the orb's script as environment variables, and [`actions/run_script.sh`](actions/run_script.sh) gives the script what CircleCI would: a `BASH_ENV` file for the values it hands to later steps, which it then passes on through `GITHUB_PATH` and `GITHUB_ENV`.
 
 ## 🏃 Executors
 
@@ -615,6 +709,10 @@ To change the image or resource class, pass them to the executor:
 You can pass any other executor that has Docker available. The jobs don't run `setup_remote_docker` themselves, which is why a machine executor is the default.
 
 ## 📦 Upgrading
+
+### From 1.0.0 to 1.1.0
+
+Upgrading from v1.0.0 to v1.1.0? v1.1.0 adds [GitHub Actions](#-github-actions) for every command. The one change for CircleCI pipelines: an image name with a registry port, such as `localhost:5000/myapp`, now saves to `localhost-5000-myapp-img.tar`, with the `:` replaced by `-` like each `/`, since a GitHub Actions artifact can't hold a `:`. `docker_load` and `scan` look for the same name, so `build`, `scan` and `publish`, and your own `docker_save` and `docker_load` steps, still find the archive. The command scripts now also run without the CircleCI CLI, using values as they are, and check what CircleCI checks before a step runs (booleans and variable names), since the actions' inputs are plain strings.
 
 ### From 0.x to 1.0.0
 
@@ -668,7 +766,7 @@ Behavior changes:
 - **Least Privilege**: No `sudo` anywhere in this orb. The jobs install Grype, Cosign and Syft into `$HOME/bin`, the composed orbs' user-owned default.
 - **Integrity**: The `publish` and `scan` jobs default to `verify_checksums: strict`, so every Cosign, Syft and Grype binary is checked against the SHA-512 table of the orb that installs it, and a version missing from that table fails the job instead of running unverified. And because `scan` and `publish` load the archive `build` saved, the image you push is the image you scanned.
 - **Provenance**: Cosign, Syft and Grype come from their official GitHub releases ([sigstore/cosign](https://github.com/sigstore/cosign/releases), [anchore/syft](https://github.com/anchore/syft/releases), [anchore/grype](https://github.com/anchore/grype/releases)), through the juburr orbs this orb pins by version.
-- **Confidentiality**: Registry and Cosign credentials are passed as environment variable *names* (`env_var_name` parameters), never as values in your config. `docker_login` reads the password from the named variable, turns shell tracing off, and hands the password to `docker login --password-stdin` rather than putting it on the command line, and the jobs run `docker logout` after your `after_*` steps. The cosign orb writes the decoded private key to a `0400` file and shreds it when the signing or attestation step exits. `extra_args` is split without `eval`, and this orb's scripts quote the values they export to later steps with `printf %q`, so an environment variable's value can't run a command.
+- **Confidentiality**: Registry and Cosign credentials are passed as environment variable *names* (`env_var_name` parameters), never as values in your config. `docker_login` reads the password from the named variable, turns shell tracing off, and hands the password to `docker login --password-stdin` rather than putting it on the command line, and the jobs run `docker logout` after your `after_*` steps. The cosign orb writes the decoded private key to a `0400` file and shreds it when the signing or attestation step exits. `extra_args` is split without `eval`, and this orb's scripts quote the values they export to later steps with `printf %q`, so an environment variable's value can't run a command. The GitHub Actions pass inputs to the scripts as environment variables, never pasting them into a script, and pin the action they use (`actions/upload-artifact`) to a commit SHA.
 - **No public transparency log**: Private-key signing and attestation skip Sigstore's public Rekor log, and verification doesn't look for entries in it, so nothing about your images is published outside your registry.
 - **Privacy**: No usage data of any kind is collected or shipped back to the orb developer. Grype and Syft check `toolbox-data.anchore.io` for a newer version when they start; set `GRYPE_CHECK_FOR_APP_UPDATE` and `SYFT_CHECK_FOR_APP_UPDATE` to `false`, for example in a context, to turn that off.
 
@@ -689,6 +787,8 @@ Linux executors with a Docker daemon. The jobs default to this orb's [`machine` 
 The `build` job and the `docker_*` commands only run `docker`, so they work wherever Docker does. The `scan` job and the `publish` job's signing, SBOM and attestation steps install Grype, Cosign and Syft through grype-orb, cosign-orb and syft-orb, which pick the Linux amd64 or arm64 build from the executor's CPU and test both. This orb's CI runs its jobs on amd64. To build an arm64 image on amd64, set `platform: linux/arm64` on `build`.
 
 Cosign, Syft and Grype are cached between jobs per tool version, and Grype's vulnerability database is cached too. The Cosign steps, and the `scan` job's `fail_on` gate, also need `jq` on the executor.
+
+The [GitHub Actions](#-github-actions) run on GitHub-hosted `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64) runners, which CI covers, and on self-hosted Linux runners with Docker and bash.
 
 ## 🌐 Network Access
 
@@ -713,17 +813,19 @@ Optional hosts. The jobs carry on without them:
 
 Signing and verifying with a private key, as `publish` does, needs no Sigstore hosts with the default Cosign 3.1.3, since the transparency log is off. The [cosign orb](https://github.com/juburr/cosign-orb) documents the exceptions for other Cosign versions and formats.
 
+The GitHub Actions reach the same registries as the commands they mirror, and nothing else on their own. With `persist_to_workspace`, `docker_save` uploads the archive to GitHub's artifact storage through `actions/upload-artifact`. GitHub-hosted runners always can; a self-hosted runner needs the hosts GitHub lists for [communication with GitHub](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners#communication-between-self-hosted-runners-and-github).
+
 ## 🤝 Contributing
 
 This is a community-maintained orb, and contributions are welcome! Bug reports, feature ideas and pull requests all help.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/juburr/container-ops-orb/issues).
 - **Need a newer Cosign, Syft or Grype?** Set `cosign_version`, `syft_version` or `grype_version`. With the default `verify_checksums: strict`, the version must be in the checksum table of the orb that installs it, so add missing checksums with a pull request to the [cosign](https://github.com/juburr/cosign-orb), [syft](https://github.com/juburr/syft-orb) or [grype](https://github.com/juburr/grype-orb) orb.
-- **Before opening a pull request**, run the checks CI runs. The tests use stand-ins for `docker` and `circleci`, so they need no Docker daemon.
+- **Before opening a pull request**, run the checks CI runs. The tests use stand-ins for `docker` and `circleci`, so they need no Docker daemon; `commands_test.sh` runs the scripts without `circleci`, as the actions do. CI also runs the orb's commands and jobs on CircleCI and the actions on GitHub's runners. A change to a command's parameters needs the same change to its action in `actions/`, which `tests/actions_test.sh` checks.
 
   ```bash
   yamllint .
-  shellcheck src/scripts/*/*.sh tests/*.sh
+  shellcheck src/scripts/*/*.sh tests/*.sh actions/*.sh
   for t in tests/*_test.sh; do bash "$t" || break; done
   circleci orb pack src > orb.yml && circleci orb validate orb.yml
   ```
@@ -743,5 +845,5 @@ Need the logo for a slide deck, blog post, or internal developer portal? PNGs wi
   <br>
   <sub>Build it once, scan it, sign it, ship it. If this orb helps your team, a ⭐ helps others find it.</sub>
   <br>
-  <sub><a href="#container-ops-orb-for-circleci">Back to top ↑</a></sub>
+  <sub><a href="#container-ops-orb-for-circleci-and-github-actions">Back to top ↑</a></sub>
 </div>

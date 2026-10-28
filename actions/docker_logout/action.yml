@@ -1,0 +1,19 @@
+name: Log out of a container registry with Docker
+description: >
+  Removes the credentials docker login stored for a registry, with docker
+  logout. The GitHub Actions twin of the orb's docker_logout command.
+author: juburr
+
+inputs:
+  registry:
+    description: Container registry to log out of, the same value passed to docker_login.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Logout
+      shell: bash
+      env:
+        PARAM_REGISTRY: ${{ inputs.registry }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/logout.sh"

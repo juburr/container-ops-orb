@@ -33,6 +33,17 @@ jobs:
       - run:
           name: Run docker script tests
           command: bash tests/docker_scripts_test.sh
+  test-actions:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Check the GitHub Actions against the orb's commands
+          command: bash tests/actions_test.sh
+      - run:
+          name: Run the command scripts without the CircleCI CLI, as the actions do
+          command: bash tests/commands_test.sh
 
 workflows:
   lint-pack:
@@ -42,6 +53,8 @@ workflows:
       - test-shell-conventions:
           filters: *filters
       - test-docker-scripts:
+          filters: *filters
+      - test-actions:
           filters: *filters
       - orb-tools/lint:
           filters: *filters
@@ -57,5 +70,5 @@ workflows:
           pipeline_number: << pipeline.number >>
           vcs_type: << pipeline.project.type >>
           orb_name: container-ops-orb
-          requires: [test-env-subst, test-shell-conventions, test-docker-scripts, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
+          requires: [test-env-subst, test-shell-conventions, test-docker-scripts, test-actions, orb-tools/lint, orb-tools/pack, orb-tools/review, shellcheck/check]
           filters: *filters

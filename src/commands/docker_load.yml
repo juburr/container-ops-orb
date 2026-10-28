@@ -8,7 +8,7 @@ parameters:
     type: string
     description: |
       The image name (repository) that was saved, without a tag. It selects
-      the archive file, <image>-img.tar with each / replaced by -; the
+      the archive file, <image>-img.tar with each / and : replaced by -; the
       image is loaded with whatever tags the archive holds.
       Example: "myapp" or "myorg/myapp"
 

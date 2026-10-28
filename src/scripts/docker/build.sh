@@ -41,8 +41,21 @@ else
     BUILDX_BUILDER="${PARAM_BUILDX_BUILDER}"
 fi
 
-OCI_LABELS="${PARAM_OCI_LABELS:-true}"
-PULL="${PARAM_PULL:-false}"
+# bool_param NAME VALUE: prints true or false for a boolean parameter.
+# CircleCI checks the command's booleans before the step runs, and passes them
+# as 1 or 0; the GitHub Action passes any string, and true or false.
+bool_param() {
+    case "$2" in
+        1 | true) echo true ;;
+        0 | false) echo false ;;
+        *)
+            echo "ERROR: $1 must be true or false, not '$2'." >&2
+            return 1
+            ;;
+    esac
+}
+OCI_LABELS=$(bool_param oci_labels "${PARAM_OCI_LABELS:-true}")
+PULL=$(bool_param pull "${PARAM_PULL:-false}")
 
 # Validate required parameters
 if [ -z "${IMAGE}" ]; then
@@ -55,6 +68,15 @@ IFS=' ' read -ra TAG_ARRAY <<< "${TAGS}"
 
 if [ ${#TAG_ARRAY[@]} -eq 0 ]; then
     echo "ERROR: At least one tag is required." >&2
+    exit 1
+fi
+
+# Without the CircleCI CLI, as in GitHub Actions, tags is used as it is, so
+# the default ${CIRCLE_SHA1} would reach docker unexpanded. A tag can't hold a
+# $, so one that does names a variable nothing expanded.
+if ! command -v circleci &> /dev/null && [[ "${TAGS}" == *'$'* ]]; then
+    echo "ERROR: tags has a \$ in it, but there is no circleci CLI to expand environment variables: ${TAGS}" >&2
+    echo "  Set tags to the values themselves, such as a GitHub Actions expression (\${{ github.sha }})." >&2
     exit 1
 fi
 
@@ -113,7 +135,7 @@ if [ -n "${TARGET}" ]; then
 fi
 
 # Add --pull flag if requested
-if [ "${PULL}" = "true" ] || [ "${PULL}" = "1" ]; then
+if [ "${PULL}" = "true" ]; then
     BUILD_CMD+=("--pull")
 fi
 
@@ -121,20 +143,27 @@ fi
 export DOCKER_BUILDKIT=1
 
 # Add OCI label build args
-if [ "${OCI_LABELS}" = "true" ] || [ "${OCI_LABELS}" = "1" ]; then
+if [ "${OCI_LABELS}" = "true" ]; then
     OCI_CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-    OCI_REVISION="${CIRCLE_SHA1:-$(git rev-parse HEAD 2>/dev/null || echo 'unknown')}"
+    # CircleCI's variables, else GitHub Actions' (GITHUB_SHA,
+    # GITHUB_REF_NAME for a tag, the repository's URL), else the checkout's.
+    OCI_REVISION="${CIRCLE_SHA1:-${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo 'unknown')}}"
 
-    # Determine version: image_version > CIRCLE_TAG > "dev"
+    # Determine version: image_version > the git tag being built > "dev"
     if [ -n "${IMAGE_VERSION}" ]; then
         OCI_VERSION="${IMAGE_VERSION}"
     elif [ -n "${CIRCLE_TAG:-}" ]; then
         OCI_VERSION="${CIRCLE_TAG}"
+    elif [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+        OCI_VERSION="${GITHUB_REF_NAME}"
     else
         OCI_VERSION="dev"
     fi
 
     OCI_SOURCE="${CIRCLE_REPOSITORY_URL:-}"
+    if [ -z "${OCI_SOURCE}" ] && [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+        OCI_SOURCE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+    fi
 
     BUILD_CMD+=("--build-arg" "OCI_CREATED=${OCI_CREATED}")
     BUILD_CMD+=("--build-arg" "OCI_REVISION=${OCI_REVISION}")

@@ -1,0 +1,37 @@
+name: Log in to a container registry with Docker
+description: >
+  Logs in to a container registry with docker login, passing the password on
+  stdin, never on its command line. The credentials come from the
+  environment variables username and password name. The GitHub Actions twin
+  of the orb's docker_login command.
+author: juburr
+
+inputs:
+  password:
+    description: >
+      Name of the environment variable holding the registry password or
+      access token (the variable's name, not the secret). Set it in the env of
+      the step that uses this action, from a secret.
+    default: REGISTRY_PASSWORD
+  registry:
+    description: >
+      Container registry to log in to, such as ghcr.io, docker.io or
+      123456789.dkr.ecr.us-east-1.amazonaws.com.
+    required: true
+  username:
+    description: >
+      Name of the environment variable holding the registry username (the
+      variable's name, not the username). Set it in the env of the step that
+      uses this action.
+    default: REGISTRY_USERNAME
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Login
+      shell: bash
+      env:
+        PARAM_PASSWORD: ${{ inputs.password }}
+        PARAM_REGISTRY: ${{ inputs.registry }}
+        PARAM_USERNAME: ${{ inputs.username }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/login.sh"

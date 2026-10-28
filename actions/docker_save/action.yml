@@ -1,0 +1,68 @@
+name: Save a Docker image to an archive
+description: >
+  Saves a local image to <archive_dir>/<image>-img.tar with docker save, and
+  sets ARCHIVED_IMAGE_PATH and ARCHIVED_IMAGE_NAME for later steps. With
+  persist_to_workspace, it uploads the archive as an artifact named
+  <image>-img (each / and : replaced by -), for a later job to download into
+  ~/images with actions/download-artifact and load with the docker_load
+  action. The GitHub Actions twin of the orb's docker_save command.
+author: juburr
+
+inputs:
+  archive_dir:
+    description: >
+      Directory to save the archive (<image>-img.tar) in. It is created if
+      missing. An absolute path, a path starting with ~, or a path relative to
+      the working directory. When persist_to_workspace is true, it must be
+      <workspace_root>/images (the default with the default workspace_root),
+      or the step fails.
+    default: "~/images"
+  image:
+    description: >
+      The image name (repository) to save, without a tag. The archive is named
+      after it: <image>-img.tar, with each / and : replaced by -.
+    required: true
+  persist_to_workspace:
+    description: >
+      Upload the archive as an artifact, the counterpart of the CircleCI
+      workspace, for later jobs: true or false. The artifact is named
+      <image>-img, with each / and : replaced by -, and a run can hold only
+      one artifact of a name, so set this to false and upload the archive
+      yourself when several jobs of a run save the same image (a matrix).
+    default: "true"
+  tag:
+    description: >
+      The tag of the image to save. If empty, the BUILT_IMAGE_TAG environment
+      variable the docker_build action sets is used, or latest when that
+      isn't set.
+    default: ""
+  workspace_root:
+    description: >
+      The CircleCI workspace's root. Here it only sets where archive_dir must
+      be when persist_to_workspace is true: <workspace_root>/images.
+    default: "~"
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Save
+      shell: bash
+      env:
+        PARAM_ARCHIVE_DIR: ${{ inputs.archive_dir }}
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_PERSIST_TO_WORKSPACE: ${{ inputs.persist_to_workspace }}
+        PARAM_TAG: ${{ inputs.tag }}
+        PARAM_WORKSPACE_ROOT: ${{ inputs.workspace_root }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/save.sh"
+    - name: Name the artifact
+      id: artifact
+      if: inputs.persist_to_workspace == 'true' || inputs.persist_to_workspace == '1'
+      shell: bash
+      run: printf 'name=%s-img\n' "${ARCHIVED_IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
+    - name: Upload the image archive
+      if: inputs.persist_to_workspace == 'true' || inputs.persist_to_workspace == '1'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.artifact.outputs.name }}
+        path: ${{ env.ARCHIVED_IMAGE_PATH }}
+        if-no-files-found: error

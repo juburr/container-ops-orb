@@ -21,6 +21,19 @@ else
     REGISTRY="${PARAM_REGISTRY}"
 fi
 
+# Fails unless parameter $1's value, $2, is an environment variable name.
+# CircleCI checks env_var_name parameters before the step runs; the GitHub
+# Action passes any string. The value isn't printed, in case a secret was
+# passed instead of a name.
+require_var_name() {
+    if [[ ! "$2" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "ERROR: The $1 parameter must be the name of an environment variable." >&2
+        exit 1
+    fi
+}
+require_var_name username "${PARAM_USERNAME}"
+require_var_name password "${PARAM_PASSWORD}"
+
 # Get credentials from environment variables (indirection)
 USERNAME="${!PARAM_USERNAME:-}"
 PASSWORD="${!PARAM_PASSWORD:-}"

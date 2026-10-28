@@ -190,8 +190,8 @@ parameters:
     default: true
     description: |
       Save the built image (<image>:<first tag>) with docker save to the tar
-      archive <archive_dir>/<image>-img.tar, with each / in image replaced
-      by -, for workspace persistence.
+      archive <archive_dir>/<image>-img.tar, with each / and : in image
+      replaced by -, for workspace persistence.
 
   archive_dir:
     type: string

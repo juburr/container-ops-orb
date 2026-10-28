@@ -1,0 +1,27 @@
+name: Push image tags to a container registry
+description: >
+  Pushes one or more tags of a local image to a registry with docker push.
+  Log in first with the docker_login action. Sets PUSHED_IMAGE,
+  PUSHED_IMAGE_TAG (the first tag) and PUSHED_IMAGE_FULL for later steps. The
+  GitHub Actions twin of the orb's docker_push command.
+author: juburr
+
+inputs:
+  image:
+    description: >
+      The image reference without a tag, including the registry and namespace,
+      such as ghcr.io/myorg/myapp.
+    required: true
+  tags:
+    description: Tags to push, separated by spaces, such as latest v1.0.0.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Push
+      shell: bash
+      env:
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_TAGS: ${{ inputs.tags }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/push.sh"

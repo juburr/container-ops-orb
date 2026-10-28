@@ -1,0 +1,117 @@
+name: Build a Docker image
+description: >
+  Builds a container image with docker build, or with docker buildx build for
+  another platform, applies every tag in tags, and passes OCI label values as
+  build arguments. Sets BUILT_IMAGE, BUILT_IMAGE_TAG (the first tag) and
+  BUILT_IMAGE_FULL (<image>:<first tag>) for later steps. The GitHub Actions
+  twin of the orb's docker_build command.
+author: juburr
+
+inputs:
+  build_args:
+    description: >
+      Additional build arguments as KEY=VALUE pairs separated by whitespace
+      (spaces or newlines). Each pair is passed as its own --build-arg, so a
+      value cannot contain whitespace; pass such a value through extra_args.
+      The OCI label build arguments are added when oci_labels is true.
+    default: ""
+  build_context:
+    description: >
+      Build context directory, the last argument of docker build: the root
+      directory sent to the Docker daemon for the build. An absolute path or a
+      path relative to the working directory, which is the default.
+    default: "."
+  buildx_builder:
+    description: >
+      Name of the buildx builder instance to use. If empty, the default builder
+      is used. Only applies when platform is set.
+    default: ""
+  dockerfile:
+    description: >
+      Path to the Dockerfile, passed to docker build -f. A relative path is
+      resolved against the working directory, as Docker does, not against
+      build_context: for a Dockerfile in another build context, include that
+      directory, such as build_context app with dockerfile app/Dockerfile.
+    default: Dockerfile
+  extra_args:
+    description: >
+      Additional arguments for docker build (or docker buildx build), before
+      the build context. Split like shell words, so quotes keep a value with
+      spaces together, but nothing is expanded or executed: $NAME, ~ and
+      wildcards reach docker as written, and so do $(...), backticks and
+      | & ; < > ( ) in quotes. Outside quotes, they fail the step. For example
+      --no-cache --progress=plain.
+    default: ""
+  image:
+    description: >
+      The image name (repository) to build, without a tag, such as myapp or
+      ghcr.io/myorg/myapp. Each of tags is applied as <image>:<tag>.
+    required: true
+  image_version:
+    description: >
+      Value of the OCI_VERSION build argument, for a Dockerfile to use in the
+      org.opencontainers.image.version label. It does not tag the image, and
+      it is ignored when oci_labels is false. If empty, the git tag being
+      built (GITHUB_REF_NAME, when GITHUB_REF_TYPE is tag) is used, otherwise
+      dev.
+    default: ""
+  no_output_timeout:
+    description: >
+      CircleCI's limit on how long the build may run without output. It has
+      no effect in GitHub Actions; set timeout-minutes on the step or the job
+      instead.
+    default: 20m
+  oci_labels:
+    description: >
+      Pass OCI label values as build arguments, for the Dockerfile to read
+      with ARG and LABEL: true or false. They are OCI_CREATED (the build time,
+      RFC 3339), OCI_REVISION (the commit, GITHUB_SHA), OCI_VERSION
+      (image_version, else the git tag being built, else dev) and OCI_SOURCE
+      (the repository's URL, from GITHUB_SERVER_URL and GITHUB_REPOSITORY).
+    default: "true"
+  platform:
+    description: >
+      A single target platform for a cross-platform build with Docker buildx,
+      such as linux/arm64. The build runs docker buildx build --platform
+      <platform> --load, which loads the image into the local Docker image
+      store; a list such as linux/amd64,linux/arm64 is not supported. Leave
+      empty to build for the runner's platform with docker build.
+    default: ""
+  pull:
+    description: >
+      Pass --pull to docker build, so that it always pulls the base images
+      instead of using local copies: true or false. This fails if any base
+      image only exists locally; use the docker_pull action for mixed cases.
+    default: "false"
+  tags:
+    description: >
+      Tags to apply to the image, separated by spaces, such as latest and the
+      commit (github.sha in an expression). Set it: the default, ${CIRCLE_SHA1},
+      is the orb command's, and without the CircleCI CLI nothing expands it,
+      so the step fails, saying so, before docker runs.
+    default: "${CIRCLE_SHA1}"
+  target:
+    description: >
+      Target build stage for multi-stage Dockerfiles, such as prod or builder.
+      Leave empty to build the final stage.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Build
+      shell: bash
+      env:
+        PARAM_BUILD_ARGS: ${{ inputs.build_args }}
+        PARAM_BUILD_CONTEXT: ${{ inputs.build_context }}
+        PARAM_BUILDX_BUILDER: ${{ inputs.buildx_builder }}
+        PARAM_DOCKERFILE: ${{ inputs.dockerfile }}
+        PARAM_EXTRA_ARGS: ${{ inputs.extra_args }}
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_IMAGE_VERSION: ${{ inputs.image_version }}
+        PARAM_OCI_LABELS: ${{ inputs.oci_labels }}
+        PARAM_PLATFORM: ${{ inputs.platform }}
+        PARAM_PULL: ${{ inputs.pull }}
+        PARAM_TAGS: ${{ inputs.tags }}
+        PARAM_TARGET: ${{ inputs.target }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/build.sh"
