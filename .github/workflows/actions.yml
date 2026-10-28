@@ -2,7 +2,8 @@
 # .circleci/test-deploy.yml tests the orb's commands on CircleCI. Each job
 # runs the actions from this checkout (uses: ./actions/...), so a pull
 # request tests its own changes. Images come from mirror.gcr.io, which serves
-# the Docker Hub images without Docker Hub's anonymous pull limits.
+# the Docker Hub images without Docker Hub's anonymous pull limits, except
+# the build for the other platform (see Dockerfile.platform).
 name: GitHub Actions
 
 on:
@@ -74,9 +75,12 @@ jobs:
           ARG ARG_THREE
           LABEL orb-test.build-args="${ARG_ONE},${ARG_TWO},${ARG_THREE}"
           EOF
-          # No RUN, so another platform builds without emulation.
+          # No RUN, so another platform builds without emulation. The base
+          # comes from the registry that publishes it: mirror.gcr.io is a
+          # pull-through cache, which can lack a platform the runner doesn't
+          # use (it failed a build this way).
           cat > Dockerfile.platform << 'EOF'
-          FROM mirror.gcr.io/library/alpine:3.20
+          FROM cgr.dev/chainguard/static:latest
           LABEL orb-test.platform="yes"
           EOF
       # A failed pull is a warning: the second image doesn't exist.
