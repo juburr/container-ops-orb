@@ -1,0 +1,31 @@
+name: Load a Docker image from an archive
+description: >
+  Loads an image that the docker_save action saved, from
+  <archive_dir>/<image>-img.tar, with docker load. In another job, download
+  the artifact docker_save uploaded into archive_dir first, with
+  actions/download-artifact. Sets LOADED_IMAGE to the image docker load
+  reports. The GitHub Actions twin of the orb's docker_load command.
+author: juburr
+
+inputs:
+  archive_dir:
+    description: >
+      Directory that holds the archive, <image>-img.tar. An absolute path, a
+      path starting with ~, or a path relative to the working directory.
+    default: "~/images"
+  image:
+    description: >
+      The image name (repository) that was saved, without a tag. It selects
+      the archive file, <image>-img.tar with each / replaced by -; the image
+      is loaded with whatever tags the archive holds.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Load
+      shell: bash
+      env:
+        PARAM_ARCHIVE_DIR: ${{ inputs.archive_dir }}
+        PARAM_IMAGE: ${{ inputs.image }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/load.sh"

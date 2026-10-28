@@ -1,0 +1,357 @@
+# Tests the GitHub Actions in actions/ on GitHub's own runners, as
+# .circleci/test-deploy.yml tests the orb's commands on CircleCI. Each job
+# runs the actions from this checkout (uses: ./actions/...), so a pull
+# request tests its own changes. Images come from mirror.gcr.io, which serves
+# the Docker Hub images without Docker Hub's anonymous pull limits.
+name: GitHub Actions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run the offline tests
+        run: |
+          for test in tests/*_test.sh; do
+            echo "=== ${test}"
+            bash "${test}"
+          done
+
+  # Runs every action but the registry ones on both architectures, as
+  # test-deploy.yml's command-test does, plus a build for the other platform.
+  commands:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            other_platform: linux/arm64
+          - runner: ubuntu-24.04-arm
+            other_platform: linux/amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create the test Dockerfiles
+        run: |
+          cat > Dockerfile << 'EOF'
+          FROM mirror.gcr.io/library/alpine:3.20
+          ARG OCI_CREATED
+          ARG OCI_REVISION
+          ARG OCI_VERSION
+          ARG OCI_SOURCE
+          LABEL org.opencontainers.image.created="${OCI_CREATED}"
+          LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+          LABEL org.opencontainers.image.version="${OCI_VERSION}"
+          LABEL org.opencontainers.image.source="${OCI_SOURCE}"
+          RUN echo "Hello from container-ops-orb test image"
+          EOF
+          cat > Dockerfile.build-args << 'EOF'
+          FROM mirror.gcr.io/library/alpine:3.20
+          ARG ARG_ONE
+          ARG ARG_TWO
+          ARG ARG_THREE
+          LABEL orb-test.build-args="${ARG_ONE},${ARG_TWO},${ARG_THREE}"
+          EOF
+          # No RUN, so another platform builds without emulation.
+          cat > Dockerfile.platform << 'EOF'
+          FROM mirror.gcr.io/library/alpine:3.20
+          LABEL orb-test.platform="yes"
+          EOF
+      # A failed pull is a warning: the second image doesn't exist.
+      - uses: ./actions/docker_pull
+        with:
+          images: |
+            mirror.gcr.io/library/alpine:3.20
+            mirror.gcr.io/library/container-ops-orb-no-such-image:none
+      - uses: ./actions/docker_build
+        with:
+          image: test-image
+          tags: test-tag ${{ github.sha }}
+      - name: Verify the build and its OCI labels
+        run: |
+          echo "BUILT_IMAGE_FULL=${BUILT_IMAGE_FULL}"
+          [[ "${BUILT_IMAGE}" == test-image ]]
+          [[ "${BUILT_IMAGE_TAG}" == test-tag ]]
+          [[ "${BUILT_IMAGE_FULL}" == test-image:test-tag ]]
+          docker image inspect "test-image:${GITHUB_SHA}" > /dev/null
+          label() {
+            docker image inspect --format "{{ index .Config.Labels \"org.opencontainers.image.$1\" }}" test-image:test-tag
+          }
+          expected_version=dev
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+            expected_version=${GITHUB_REF_NAME}
+          fi
+          echo "revision=$(label revision) version=$(label version) source=$(label source) created=$(label created)"
+          [[ "$(label revision)" == "${GITHUB_SHA}" ]]
+          [[ "$(label version)" == "${expected_version}" ]]
+          [[ "$(label source)" == "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" ]]
+          [[ -n "$(label created)" ]]
+      # Without the CircleCI CLI, extra_args reaches docker as written: the
+      # $HOME is not expanded, the quoted value keeps its space, and its
+      # $(...) is not run.
+      - uses: ./actions/docker_build
+        with:
+          image: test-image-extra-args
+          tags: test-tag
+          oci_labels: false
+          extra_args: --no-cache --label orb-test.home=$HOME --label 'orb-test.literal=$(touch pwned) x'
+      - name: Verify extra_args reached docker build as written
+        run: |
+          label() {
+            docker image inspect --format "{{ index .Config.Labels \"orb-test.$1\" }}" test-image-extra-args:test-tag
+          }
+          # shellcheck disable=SC2016 # the values are expected verbatim
+          [[ "$(label home)" == '$HOME' ]]
+          # shellcheck disable=SC2016 # the values are expected verbatim
+          [[ "$(label literal)" == '$(touch pwned) x' ]]
+          [[ ! -e pwned ]]
+      - uses: ./actions/docker_build
+        with:
+          image: test-image-build-args
+          tags: test-tag
+          dockerfile: Dockerfile.build-args
+          oci_labels: false
+          build_args: |
+            ARG_ONE=1 ARG_TWO=2
+            ARG_THREE=3
+      - name: Verify each build_args pair reached docker build
+        run: |
+          label=$(docker image inspect --format '{{ index .Config.Labels "orb-test.build-args" }}' test-image-build-args:test-tag)
+          [[ "${label}" == "1,2,3" ]]
+      - uses: ./actions/docker_build
+        with:
+          image: test-image-platform
+          tags: test-tag
+          dockerfile: Dockerfile.platform
+          oci_labels: false
+          platform: ${{ matrix.other_platform }}
+      - name: Verify the image was built for the other platform
+        env:
+          PLATFORM: ${{ matrix.other_platform }}
+        run: |
+          built=$(docker image inspect --format '{{ .Os }}/{{ .Architecture }}' test-image-platform:test-tag)
+          echo "Built ${built}"
+          [[ "${built}" == "${PLATFORM}" ]]
+      # The default tags, ${CIRCLE_SHA1}, is the orb command's, which nothing
+      # expands here.
+      - name: Build with the default tags, which must fail
+        id: default-tags
+        continue-on-error: true
+        uses: ./actions/docker_build
+        with:
+          image: test-image-default-tags
+      - name: Verify it failed before building
+        env:
+          OUTCOME: ${{ steps.default-tags.outcome }}
+        run: |
+          [[ "${OUTCOME}" == failure ]]
+          [[ -z "$(docker images -q test-image-default-tags)" ]]
+      - uses: ./actions/docker_inspect
+        with:
+          image: test-image
+          tag: test-tag
+      - uses: ./actions/docker_save
+        with:
+          image: test-image
+          tag: test-tag
+          persist_to_workspace: false
+      - name: Verify the archive
+        run: |
+          echo "ARCHIVED_IMAGE_PATH=${ARCHIVED_IMAGE_PATH}"
+          [[ "${ARCHIVED_IMAGE_PATH}" == "${HOME}/images/test-image-img.tar" ]]
+          [[ "${ARCHIVED_IMAGE_NAME}" == test-image ]]
+          [[ -s "${ARCHIVED_IMAGE_PATH}" ]]
+          docker rmi test-image:test-tag
+      - uses: ./actions/docker_load
+        with:
+          image: test-image
+      - name: Verify the image was loaded
+        run: |
+          [[ "${LOADED_IMAGE}" == test-image:test-tag ]]
+          docker image inspect test-image:test-tag > /dev/null
+      - uses: ./actions/docker_tag
+        with:
+          source_image: test-image:test-tag
+          target_image: localhost:5000/test-org/test-image
+          tags: v1.0.0 latest ${{ github.sha }}
+      - name: Verify the tags
+        run: |
+          docker image inspect localhost:5000/test-org/test-image:v1.0.0 > /dev/null
+          docker image inspect localhost:5000/test-org/test-image:latest > /dev/null
+          docker image inspect "localhost:5000/test-org/test-image:${GITHUB_SHA}" > /dev/null
+          [[ "${TAGGED_IMAGE}" == localhost:5000/test-org/test-image ]]
+          [[ "${TAGGED_IMAGE_TAG}" == v1.0.0 ]]
+          [[ "${TAGGED_IMAGE_FULL}" == localhost:5000/test-org/test-image:v1.0.0 ]]
+
+  # docker_login, docker_tag, docker_push and docker_logout against a local
+  # registry, as test-deploy.yml's tag-push-command-test does, here one that
+  # requires a login.
+  registry:
+    runs-on: ubuntu-24.04
+    env:
+      REGISTRY_HOST: localhost:5000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start a registry that requires a login
+        env:
+          # Placeholder credentials for the throwaway registry.
+          REGISTRY_USER: ci-user
+          REGISTRY_SECRET: ci-password
+        run: |
+          # A pull from mirror.gcr.io can time out, so pull with retries
+          # before running the images.
+          for image in mirror.gcr.io/library/httpd:2 mirror.gcr.io/library/registry:2; do
+            for attempt in 1 2 3; do
+              docker pull "${image}" && break
+              sleep $((attempt * 10))
+            done
+          done
+          mkdir -p "${RUNNER_TEMP}/registry-auth"
+          docker run --rm --entrypoint htpasswd mirror.gcr.io/library/httpd:2 -Bbn "${REGISTRY_USER}" "${REGISTRY_SECRET}" \
+            > "${RUNNER_TEMP}/registry-auth/htpasswd"
+          docker run -d --name registry -p 5000:5000 -v "${RUNNER_TEMP}/registry-auth:/auth" \
+            -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=container-ops-orb-ci \
+            -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd mirror.gcr.io/library/registry:2
+          # A 401 means the registry is up and refuses anonymous requests.
+          for _ in $(seq 1 30); do
+            if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://${REGISTRY_HOST}/v2/")" == "401" ]]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "The registry did not start."
+          docker logs registry
+          exit 1
+      - name: Create the test Dockerfile
+        run: |
+          cat > Dockerfile << 'EOF'
+          FROM mirror.gcr.io/library/alpine:3.20
+          LABEL org.opencontainers.image.title="Tag Push Test"
+          CMD ["echo", "Tag and push test"]
+          EOF
+      - uses: ./actions/docker_build
+        with:
+          image: push-test-image
+          tags: original
+      # The credentials are set in the env of the step that uses the action,
+      # as a workflow sets them from secrets.
+      - name: Log in with a wrong password, which must fail
+        id: wrong-password
+        continue-on-error: true
+        uses: ./actions/docker_login
+        env:
+          REGISTRY_USERNAME: ci-user
+          REGISTRY_PASSWORD: not-the-password
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+      - name: Verify the wrong password was refused
+        env:
+          OUTCOME: ${{ steps.wrong-password.outcome }}
+        run: '[[ "${OUTCOME}" == failure ]]'
+      - uses: ./actions/docker_login
+        env:
+          TEST_REGISTRY_USER: ci-user
+          TEST_REGISTRY_PASSWORD: ci-password
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: TEST_REGISTRY_USER
+          password: TEST_REGISTRY_PASSWORD
+      - uses: ./actions/docker_tag
+        with:
+          source_image: push-test-image:original
+          target_image: ${{ env.REGISTRY_HOST }}/myorg/push-test
+          tags: v2.0.0 v2.0 v2 latest
+      - uses: ./actions/docker_push
+        with:
+          image: ${{ env.REGISTRY_HOST }}/myorg/push-test
+          tags: v2.0.0 v2.0 v2 latest
+      - name: Verify the pushed images
+        run: |
+          [[ "${PUSHED_IMAGE}" == "${REGISTRY_HOST}/myorg/push-test" ]]
+          [[ "${PUSHED_IMAGE_TAG}" == v2.0.0 ]]
+          [[ "${PUSHED_IMAGE_FULL}" == "${REGISTRY_HOST}/myorg/push-test:v2.0.0" ]]
+          for tag in v2.0.0 v2.0 v2 latest; do
+            docker rmi "${REGISTRY_HOST}/myorg/push-test:${tag}"
+          done
+          docker pull "${REGISTRY_HOST}/myorg/push-test:v2.0.0"
+          docker pull "${REGISTRY_HOST}/myorg/push-test:latest"
+      - uses: ./actions/docker_logout
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+      - name: Verify the registry refuses docker after logout
+        run: |
+          docker rmi "${REGISTRY_HOST}/myorg/push-test:v2.0.0"
+          if docker pull "${REGISTRY_HOST}/myorg/push-test:v2.0.0"; then
+            echo "docker pulled from the registry after logout."
+            exit 1
+          fi
+
+  # docker_save's default persist_to_workspace uploads the archive as an
+  # artifact, which the load job downloads and loads, as a workspace carries
+  # it between CircleCI jobs. The image's name holds the run attempt, since
+  # a run holds one artifact of a name.
+  save:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create the test Dockerfile
+        run: |
+          cat > Dockerfile << 'EOF'
+          FROM mirror.gcr.io/library/alpine:3.20
+          CMD ["echo", "Save and load test"]
+          EOF
+      - uses: ./actions/docker_build
+        with:
+          image: myorg/save-test-${{ github.run_attempt }}
+          tags: ${{ github.sha }}
+      - uses: ./actions/docker_save
+        with:
+          image: myorg/save-test-${{ github.run_attempt }}
+
+  load:
+    needs: save
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: myorg-save-test-${{ github.run_attempt }}-img
+          path: ~/images
+      - uses: ./actions/docker_load
+        with:
+          image: myorg/save-test-${{ github.run_attempt }}
+      - name: Verify the image was loaded
+        env:
+          IMAGE: myorg/save-test-${{ github.run_attempt }}
+        run: |
+          echo "LOADED_IMAGE=${LOADED_IMAGE}"
+          [[ "${LOADED_IMAGE}" == "${IMAGE}:${GITHUB_SHA}" ]]
+          docker run --rm "${IMAGE}:${GITHUB_SHA}" | grep -x "Save and load test"

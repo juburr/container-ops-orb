@@ -1,0 +1,31 @@
+name: Tag a Docker image for a registry
+description: >
+  Tags a local image with one or more tags of a target repository, ready for
+  the docker_push action. Sets TAGGED_IMAGE, TAGGED_IMAGE_TAG (the first tag)
+  and TAGGED_IMAGE_FULL for later steps. The GitHub Actions twin of the orb's
+  docker_tag command.
+author: juburr
+
+inputs:
+  source_image:
+    description: The local image to tag, including its tag, such as myapp:latest.
+    required: true
+  tags:
+    description: Tags to apply to the target image, separated by spaces, such as latest v1.0.0.
+    required: true
+  target_image:
+    description: >
+      The target image reference without a tag, including the registry and
+      namespace, such as ghcr.io/myorg/myapp.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Tag
+      shell: bash
+      env:
+        PARAM_SOURCE_IMAGE: ${{ inputs.source_image }}
+        PARAM_TAGS: ${{ inputs.tags }}
+        PARAM_TARGET_IMAGE: ${{ inputs.target_image }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/tag.sh"

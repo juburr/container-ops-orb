@@ -1,0 +1,24 @@
+name: Pull container images
+description: >
+  Pulls one or more images with docker pull, such as base images before a
+  build that can't use --pull because some base images exist only locally. A
+  failed pull is printed as a warning and does not fail the step. The GitHub
+  Actions twin of the orb's docker_pull command.
+author: juburr
+
+inputs:
+  images:
+    description: >
+      Image references to pull, separated by whitespace (spaces or newlines),
+      such as ghcr.io/myorg/base:latest. A later docker build without --pull
+      uses a local copy if one exists, and otherwise tries to pull it again.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Docker Pull Base Images
+      shell: bash
+      env:
+        PARAM_IMAGES: ${{ inputs.images }}
+      run: bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/docker/pull.sh"

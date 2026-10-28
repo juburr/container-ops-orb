@@ -28,6 +28,17 @@ fi
 PERSIST_TO_WORKSPACE="${PARAM_PERSIST_TO_WORKSPACE:-false}"
 WORKSPACE_ROOT="${PARAM_WORKSPACE_ROOT:-}"
 
+# CircleCI checks the command's boolean before the step runs, and passes it as
+# 1 or 0; the GitHub Action passes any string, and true or false.
+case "${PERSIST_TO_WORKSPACE}" in
+    1 | true) PERSIST_TO_WORKSPACE=true ;;
+    0 | false) PERSIST_TO_WORKSPACE=false ;;
+    *)
+        echo "ERROR: persist_to_workspace must be true or false, not '${PERSIST_TO_WORKSPACE}'." >&2
+        exit 1
+        ;;
+esac
+
 # Use BUILT_IMAGE_TAG from environment if tag not specified
 if [ -z "${TAG}" ]; then
     TAG="${BUILT_IMAGE_TAG:-latest}"
@@ -45,7 +56,7 @@ mkdir -p "${ARCHIVE_DIR}"
 # The persist_to_workspace step that follows persists the fixed path "images"
 # under workspace_root (paths are relative to root and fixed when the config is
 # compiled), so with persistence on, the archive must be saved there.
-if [ "${PERSIST_TO_WORKSPACE}" = "true" ] || [ "${PERSIST_TO_WORKSPACE}" = "1" ]; then
+if [ "${PERSIST_TO_WORKSPACE}" = "true" ]; then
     ARCHIVE_DIR_REAL=$(CDPATH='' cd -P -- "${ARCHIVE_DIR}" && pwd -P)
     if WORKSPACE_ROOT_REAL=$(CDPATH='' cd -P -- "${WORKSPACE_ROOT:-.}" 2> /dev/null && pwd -P); then
         PERSISTED_DIR="${WORKSPACE_ROOT_REAL%/}/images"
