@@ -194,6 +194,11 @@ done
 check "docker_save: writes the archive's path to BASH_ENV" \
     bash_env_has "$(exported ARCHIVED_IMAGE_PATH "${WORK}/out/myorg-app-img.tar")"
 check "docker_save: and its name" bash_env_has "$(exported ARCHIVED_IMAGE_NAME myorg-app)"
+run save "${SAVE_DEFAULTS[@]}" PARAM_IMAGE=localhost:5000/myorg/app PARAM_ARCHIVE_DIR="${WORK}/out" \
+    PARAM_PERSIST_TO_WORKSPACE=false
+check "docker_save: replaces a registry port's : in the archive's name too" \
+    args_have save -o "${WORK}/out/localhost-5000-myorg-app-img.tar" localhost:5000/myorg/app:t1 --end--
+check "docker_save: and in the name it exports" bash_env_has "$(exported ARCHIVED_IMAGE_NAME localhost-5000-myorg-app)"
 run save "${SAVE_DEFAULTS[@]}" PARAM_PERSIST_TO_WORKSPACE=yes
 check "docker_save: persist_to_workspace yes fails" rc_is_nonzero
 check "docker_save: saying what persist_to_workspace takes" \
@@ -205,6 +210,9 @@ run load PARAM_IMAGE=myorg/app PARAM_ARCHIVE_DIR="${WORK}/out"
 check "docker_load: succeeds" rc_is_zero
 check "docker_load: loads <archive_dir>/<image>-img.tar" args_have load -i "${WORK}/out/myorg-app-img.tar" --end--
 check "docker_load: writes the loaded image to BASH_ENV" bash_env_has "$(exported LOADED_IMAGE app:t1)"
+run load PARAM_IMAGE=localhost:5000/myorg/app PARAM_ARCHIVE_DIR="${WORK}/out"
+check "docker_load: finds the archive docker_save names for a registry port" \
+    args_have load -i "${WORK}/out/localhost-5000-myorg-app-img.tar" --end--
 
 # ----------------------------------------------------------- docker_login
 LOGIN_DEFAULTS=(REGISTRY_USERNAME=ci-user REGISTRY_PASSWORD=ci-password PARAM_USERNAME=REGISTRY_USERNAME

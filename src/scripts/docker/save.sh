@@ -75,8 +75,9 @@ if [ "${PERSIST_TO_WORKSPACE}" = "true" ]; then
     fi
 fi
 
-# Generate safe filename (replace / with -)
-SAFE_NAME=$(echo "${IMAGE}" | tr '/' '-')
+# Generate safe filename (replace / and : with -). A registry's port puts a :
+# in an image name, and a GitHub Actions artifact can't hold one.
+SAFE_NAME=$(echo "${IMAGE}" | tr '/:' '--')
 ARCHIVE_FILE="${ARCHIVE_DIR}/${SAFE_NAME}-img.tar"
 
 echo "Saving image: ${FULL_IMAGE}"

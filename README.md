@@ -468,7 +468,7 @@ Checks out your code and builds an image with `docker build`, or `docker buildx 
 | `registry` | *(empty)* | Registry to log in to before building, for private base images, such as `ghcr.io`, `docker.io`, `gcr.io` or `123456789.dkr.ecr.us-east-1.amazonaws.com`. Empty skips login. |
 | `registry_username` | `REGISTRY_USERNAME` | Name of the environment variable holding the registry username. Only used when `registry` is set. |
 | `registry_password` | `REGISTRY_PASSWORD` | Name of the environment variable holding the registry password or access token. Only used when `registry` is set. |
-| `archive` | `true` | Save the built image (`<image>:<first tag>`) with `docker save` to `<archive_dir>/<image>-img.tar`, with each `/` in `image` replaced by `-`. |
+| `archive` | `true` | Save the built image (`<image>:<first tag>`) with `docker save` to `<archive_dir>/<image>-img.tar`, with each `/` and `:` in `image` replaced by `-`. |
 | `archive_dir` | `~/images` | Directory for the archive: an absolute path, a path starting with `~`, or a path relative to the working directory. When `persist_to_workspace` is true, it must be `<workspace_root>/images` (the default with the default `workspace_root`), or the job fails. |
 | `persist_to_workspace` | `true` | Persist the archive to the workspace for later jobs. Only applies when `archive` is true. It persists the `images` directory under `workspace_root`, so `archive_dir` must be `<workspace_root>/images`. |
 | `workspace_root` | `~` | Root directory of the persisted workspace. A downstream job that attaches the workspace at `<path>` finds the archive in `<path>/images`. |
@@ -582,7 +582,7 @@ Loads an image from the archive `docker_save` wrote, `<archive_dir>/<image>-img.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `image` | *required* | Image name (repository) that was saved, without a tag, such as `myapp` or `myorg/myapp`. It selects the archive `<image>-img.tar`, with each `/` replaced by `-`. |
+| `image` | *required* | Image name (repository) that was saved, without a tag, such as `myapp` or `myorg/myapp`. It selects the archive `<image>-img.tar`, with each `/` and `:` replaced by `-`. |
 | `archive_dir` | `~/images` | Directory that holds the archive: absolute, starting with `~`, or relative to the working directory. The default matches `docker_save`'s default with the workspace attached at `~`. |
 
 ### `container-ops-orb/docker_login`
@@ -626,7 +626,7 @@ Saves an image with `docker save` to `<archive_dir>/<image>-img.tar`, creating `
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `image` | *required* | Image name (repository) to save, without a tag. The archive is named `<image>-img.tar`, with each `/` replaced by `-`. |
+| `image` | *required* | Image name (repository) to save, without a tag. The archive is named `<image>-img.tar`, with each `/` and `:` replaced by `-`. |
 | `tag` | *(empty)* | Tag to save. Empty uses `BUILT_IMAGE_TAG` from `docker_build`, or `latest` if that isn't set. |
 | `archive_dir` | `~/images` | Directory to save the archive in: absolute, starting with `~`, or relative to the working directory. When `persist_to_workspace` is true, it must be `<workspace_root>/images` (the default with the default `workspace_root`). |
 | `persist_to_workspace` | `true` | Persist the `images` directory under `workspace_root` to the workspace. To save elsewhere, set this to false and add your own `persist_to_workspace` step. |
@@ -712,7 +712,7 @@ You can pass any other executor that has Docker available. The jobs don't run `s
 
 ### From 1.0.0 to 1.1.0
 
-Upgrading from v1.0.0 to v1.1.0? Nothing changes for CircleCI pipelines: v1.1.0 adds [GitHub Actions](#-github-actions) for every command. The command scripts now also run without the CircleCI CLI, using values as they are, and check what CircleCI checks before a step runs (booleans and variable names), since the actions' inputs are plain strings.
+Upgrading from v1.0.0 to v1.1.0? v1.1.0 adds [GitHub Actions](#-github-actions) for every command. The one change for CircleCI pipelines: an image name with a registry port, such as `localhost:5000/myapp`, now saves to `localhost-5000-myapp-img.tar`, with the `:` replaced by `-` like each `/`, since a GitHub Actions artifact can't hold a `:`. `docker_load` and `scan` look for the same name, so `build`, `scan` and `publish`, and your own `docker_save` and `docker_load` steps, still find the archive. The command scripts now also run without the CircleCI CLI, using values as they are, and check what CircleCI checks before a step runs (booleans and variable names), since the actions' inputs are plain strings.
 
 ### From 0.x to 1.0.0
 

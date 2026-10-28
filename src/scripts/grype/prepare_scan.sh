@@ -68,7 +68,8 @@ case "${IMAGE_SOURCE}" in
         ;;
     "archive")
         # Scan tar archive directly using docker-archive: scheme
-        SAFE_NAME=$(echo "${IMAGE}" | tr '/' '-')
+        # The archive docker_save wrote: each / and : in the name became -.
+        SAFE_NAME=$(echo "${IMAGE}" | tr '/:' '--')
         ARCHIVE_FILE="${ARCHIVE_DIR}/${SAFE_NAME}-img.tar"
         SCAN_TARGET="docker-archive:${ARCHIVE_FILE}"
         echo "Scan mode: Archive file"

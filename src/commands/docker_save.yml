@@ -8,7 +8,7 @@ parameters:
     type: string
     description: |
       The image name (repository) to save, without a tag. The archive is
-      named after it: <image>-img.tar, with each / replaced by -.
+      named after it: <image>-img.tar, with each / and : replaced by -.
       Example: "myapp" or "myorg/myapp"
 
   tag:

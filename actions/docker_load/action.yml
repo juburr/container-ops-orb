@@ -16,7 +16,7 @@ inputs:
   image:
     description: >
       The image name (repository) that was saved, without a tag. It selects
-      the archive file, <image>-img.tar with each / replaced by -; the image
+      the archive file, <image>-img.tar with each / and : replaced by -; the image
       is loaded with whatever tags the archive holds.
     required: true
 

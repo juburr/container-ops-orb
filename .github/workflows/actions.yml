@@ -313,9 +313,14 @@ jobs:
   # docker_save's default persist_to_workspace uploads the archive as an
   # artifact, which the load job downloads and loads, as a workspace carries
   # it between CircleCI jobs. The image's name holds the run attempt, since
-  # a run holds one artifact of a name.
+  # a run holds one artifact of a name, and a registry port, whose : an
+  # artifact can't hold. load takes both names from save's outputs, so a
+  # re-run of load alone still finds the artifact save uploaded.
   save:
     runs-on: ubuntu-24.04
+    outputs:
+      image: localhost:5000/myorg/save-test-${{ github.run_attempt }}
+      artifact: localhost-5000-myorg-save-test-${{ github.run_attempt }}-img
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -328,11 +333,11 @@ jobs:
           EOF
       - uses: ./actions/docker_build
         with:
-          image: myorg/save-test-${{ github.run_attempt }}
+          image: localhost:5000/myorg/save-test-${{ github.run_attempt }}
           tags: ${{ github.sha }}
       - uses: ./actions/docker_save
         with:
-          image: myorg/save-test-${{ github.run_attempt }}
+          image: localhost:5000/myorg/save-test-${{ github.run_attempt }}
 
   load:
     needs: save
@@ -343,14 +348,14 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: myorg-save-test-${{ github.run_attempt }}-img
+          name: ${{ needs.save.outputs.artifact }}
           path: ~/images
       - uses: ./actions/docker_load
         with:
-          image: myorg/save-test-${{ github.run_attempt }}
+          image: ${{ needs.save.outputs.image }}
       - name: Verify the image was loaded
         env:
-          IMAGE: myorg/save-test-${{ github.run_attempt }}
+          IMAGE: ${{ needs.save.outputs.image }}
         run: |
           echo "LOADED_IMAGE=${LOADED_IMAGE}"
           [[ "${LOADED_IMAGE}" == "${IMAGE}:${GITHUB_SHA}" ]]

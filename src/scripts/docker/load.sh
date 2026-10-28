@@ -24,8 +24,8 @@ fi
 # Expand ~ to home directory
 ARCHIVE_DIR="${ARCHIVE_DIR/#\~/$HOME}"
 
-# Generate safe filename (same logic as docker_save)
-SAFE_NAME=$(echo "${IMAGE}" | tr '/' '-')
+# Generate safe filename (same logic as docker_save: / and : become -)
+SAFE_NAME=$(echo "${IMAGE}" | tr '/:' '--')
 ARCHIVE_FILE="${ARCHIVE_DIR}/${SAFE_NAME}-img.tar"
 
 echo "Loading image from archive..."
