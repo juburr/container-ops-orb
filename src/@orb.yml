@@ -8,7 +8,7 @@ display:
   source_url: "https://github.com/juburr/container-ops-orb"
 
 orbs:
-  cosign: juburr/cosign-orb@1.0.0
-  grype: juburr/grype-orb@1.0.1
-  tagger: juburr/container-tagger-orb@1.0.0
-  syft: juburr/syft-orb@1.0.0
+  cosign: juburr/cosign-orb@1.1.0
+  grype: juburr/grype-orb@1.1.1
+  tagger: juburr/container-tagger-orb@1.1.1
+  syft: juburr/syft-orb@1.1.1
