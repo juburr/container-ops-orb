@@ -104,10 +104,10 @@ flowchart LR
 
 | Step | Orb used | Tool version (default) |
 | --- | --- | --- |
-| `scan` | [`juburr/grype-orb@1.0.1`](https://github.com/juburr/grype-orb) | Grype `0.119.0` (`grype_version`) |
-| `publish` with `sign` (and `attest`) | [`juburr/cosign-orb@1.0.0`](https://github.com/juburr/cosign-orb) | Cosign `3.1.3` (`cosign_version`) |
-| `publish` with `sbom` | [`juburr/syft-orb@1.0.0`](https://github.com/juburr/syft-orb) | Syft `1.52.0` (`syft_version`) |
-| `publish` with `tags_file` | [`juburr/container-tagger-orb@1.0.0`](https://github.com/juburr/container-tagger-orb) | none, uses `docker` |
+| `scan` | [`juburr/grype-orb@1.1.1`](https://github.com/juburr/grype-orb) | Grype `0.119.0` (`grype_version`) |
+| `publish` with `sign` (and `attest`) | [`juburr/cosign-orb@1.1.0`](https://github.com/juburr/cosign-orb) | Cosign `3.1.3` (`cosign_version`) |
+| `publish` with `sbom` | [`juburr/syft-orb@1.1.1`](https://github.com/juburr/syft-orb) | Syft `1.52.0` (`syft_version`) |
+| `publish` with `tags_file` | [`juburr/container-tagger-orb@1.1.1`](https://github.com/juburr/container-tagger-orb) | none, uses `docker` |
 
 ## 🚀 Quick Start
 
@@ -117,7 +117,7 @@ Build the image in your repository's `Dockerfile`, scan it, and push it to your 
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
 
 workflows:
   build-scan-publish:
@@ -157,7 +157,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
-      - uses: juburr/container-ops-orb/actions/docker_build@v1.1.0
+      - uses: juburr/container-ops-orb/actions/docker_build@v1.1.1
         with:
           image: myapp
           tags: ${{ github.sha }}
@@ -168,22 +168,22 @@ jobs:
           source: docker:myapp:${{ github.sha }}
           fail_on: high
       # Reads the credentials from the variables set in this step's env.
-      - uses: juburr/container-ops-orb/actions/docker_login@v1.1.0
+      - uses: juburr/container-ops-orb/actions/docker_login@v1.1.1
         env:
           REGISTRY_USERNAME: ${{ github.actor }}
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
           registry: ghcr.io
-      - uses: juburr/container-ops-orb/actions/docker_tag@v1.1.0
+      - uses: juburr/container-ops-orb/actions/docker_tag@v1.1.1
         with:
           source_image: myapp:${{ github.sha }}
           target_image: ghcr.io/myorg/myapp
           tags: ${{ github.sha }} latest
-      - uses: juburr/container-ops-orb/actions/docker_push@v1.1.0
+      - uses: juburr/container-ops-orb/actions/docker_push@v1.1.1
         with:
           image: ghcr.io/myorg/myapp
           tags: ${{ github.sha }} latest
-      - uses: juburr/container-ops-orb/actions/docker_logout@v1.1.0
+      - uses: juburr/container-ops-orb/actions/docker_logout@v1.1.1
         if: always()
         with:
           registry: ghcr.io
@@ -210,7 +210,7 @@ Sign the pushed image with a Cosign key pair, generate an SPDX SBOM with Syft, a
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
 
 workflows:
   secure-publish:
@@ -245,7 +245,7 @@ Signing and attestation use the private key without the public Rekor transparenc
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
 
 workflows:
   secure-build:
@@ -282,7 +282,7 @@ Scan an image that is already in a registry, for example from a scheduled pipeli
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
 
 workflows:
   scan-published:
@@ -309,7 +309,7 @@ Log in to a private registry before building, and pull base images from it witho
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
 
 workflows:
   build-workflow:
@@ -336,8 +336,8 @@ Push release-style tags (`1.2.3`, `1.2`, `1` and `latest` for the newest `v1.2.3
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
-  tagger: juburr/container-tagger-orb@1.0.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
+  tagger: juburr/container-tagger-orb@1.1.1
 
 workflows:
   release:
@@ -393,7 +393,7 @@ To deploy exactly the image that was signed, hand the digest to a later job thro
 version: 2.1
 
 orbs:
-  container-ops-orb: juburr/container-ops-orb@1.1.0
+  container-ops-orb: juburr/container-ops-orb@1.1.1
 
 workflows:
   release:
@@ -662,7 +662,7 @@ Each of the orb's commands has a GitHub Action of the same name. The actions run
 
 How the actions differ from the orb's commands:
 
-- **Versions.** An action is referenced by the repository's release tag, such as `v1.1.0`, the same tag the orb is published from. There is no moving major tag such as `v1` yet. For the strongest pinning, use the tag's commit SHA: `juburr/container-ops-orb/actions/docker_push@<sha> # v1.1.0`.
+- **Versions.** An action is referenced by the repository's release tag, such as `v1.1.1`, the same tag the orb is published from. There is no moving major tag such as `v1` yet. For the strongest pinning, use the tag's commit SHA: `juburr/container-ops-orb/actions/docker_push@<sha> # v1.1.1`.
 - **Credentials.** `docker_login` takes the *names* of environment variables, as the command does. Set those variables in the `env` of the step that uses the action, from secrets, as the Quick Start does. The password reaches `docker login` on stdin, never on a command line.
 - **Environment variables.** The orb expands `$NAME` in its string parameters with the CircleCI CLI, which GitHub's runners don't have, so the actions take values as they are: a `$HOME` in `extra_args` reaches Docker as written. Use GitHub's expressions instead, such as `tags: ${{ github.sha }}`. `docker_build`'s default `tags`, `${CIRCLE_SHA1}`, would reach Docker unexpanded, so the step fails before it runs Docker: set `tags`. A leading `~` in `archive_dir` and `workspace_root` is still the home directory.
 - **OCI labels.** Without CircleCI's variables, `docker_build` takes `OCI_REVISION` from `GITHUB_SHA`, `OCI_VERSION` (when `image_version` is empty) from `GITHUB_REF_NAME` when the workflow runs for a tag, otherwise `dev`, and `OCI_SOURCE` from `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY`, such as `https://github.com/myorg/myapp`.
@@ -675,7 +675,7 @@ How the actions differ from the orb's commands:
     with:
       name: myorg-myapp-img
       path: ~/images
-  - uses: juburr/container-ops-orb/actions/docker_load@v1.1.0
+  - uses: juburr/container-ops-orb/actions/docker_load@v1.1.1
     with:
       image: myorg/myapp
   ```
@@ -709,6 +709,10 @@ To change the image or resource class, pass them to the executor:
 You can pass any other executor that has Docker available. The jobs don't run `setup_remote_docker` themselves, which is why a machine executor is the default.
 
 ## 📦 Upgrading
+
+### From 1.1.0 to 1.1.1
+
+Upgrading from v1.1.0 to v1.1.1? The jobs now use the current releases of the orbs they build on: grype-orb 1.1.1, cosign-orb 1.1.0, syft-orb 1.1.1 and container-tagger-orb 1.1.1. Their commands take the same parameters and install the same Grype, Cosign and Syft versions as the releases v1.1.0 used, so nothing changes in your config. The newer releases add those orbs' GitHub Actions; their command scripts also check the values CircleCI already checks, and run without the CircleCI CLI.
 
 ### From 1.0.0 to 1.1.0
 
